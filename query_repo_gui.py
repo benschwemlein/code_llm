@@ -25,6 +25,17 @@ DEFAULT_TOP_K = 16
 DEFAULT_MAX_DIRECT_EMBED_CHARS = 4000
 
 
+def distance_to_score(dist: float) -> float:
+    """
+    Convert a distance to a similarity score in percent.
+
+    0 distance -> 100 percent (perfect match)
+    Large distance -> closer to 0 percent
+    """
+    sim = 1.0 / (1.0 + dist)
+    return sim * 100.0
+
+
 def embed_text(text: str):
     """
     Ask Ollama for an embedding of a single text chunk or query.
@@ -163,7 +174,7 @@ class CodeSearchGUI(tk.Tk):
         super().__init__()
         self.title("Local Code Query")
 
-        self.last_results = None
+        self.last_results = None   # list of {"meta": meta, "distance": dist}
         self.last_index_dir = None
         self.last_repo_root = None
 
@@ -545,11 +556,17 @@ class CodeSearchGUI(tk.Tk):
         self.last_index_dir = index_dir
         self.last_repo_root = repo_root
 
+        count = len(metas)
+        self.append_output(f"Retrieved {count} snippet chunks.")
+
         self.append_output("Using snippets from:")
-        for meta, dist in zip(metas, dists):
+        for idx, (meta, dist) in enumerate(zip(metas, dists), start=1):
             path = meta.get("path", "<unknown>")
             chunk_idx = meta.get("chunk_index", "?")
-            self.append_output(f"  {path} (chunk {chunk_idx}, distance {dist:.4f})")
+            score = distance_to_score(dist)
+            self.append_output(
+                f"  [{idx:02d}] {score:5.1f}%  {path} (chunk {chunk_idx}, distance {dist:.4f})"
+            )
 
         self.append_output("")
         self.append_output("[gui_query] Asking LLM with retrieved context...")
@@ -584,27 +601,32 @@ class CodeSearchGUI(tk.Tk):
 
         files_for_rows = []
 
+        # Aggregate best score and chunk count per path
         best_by_path = {}
+        counts_by_path = {}
         for item in self.last_results:
             meta = item["meta"]
             dist = item["distance"]
             path = meta.get("path", "<unknown>")
-            current = best_by_path.get(path)
-            if current is None or dist < current:
-                best_by_path[path] = dist
+            score = distance_to_score(dist)
+            if path not in best_by_path or score > best_by_path[path]:
+                best_by_path[path] = score
+            counts_by_path[path] = counts_by_path.get(path, 0) + 1
 
-        sorted_items = sorted(best_by_path.items(), key=lambda x: x[1])
+        # Sort files by score descending
+        sorted_items = sorted(best_by_path.items(), key=lambda x: x[1], reverse=True)
 
-        for path, dist in sorted_items:
-            listbox.insert("end", f"{dist:.4f}  {path}")
+        for idx, (path, score) in enumerate(sorted_items, start=1):
+            count = counts_by_path.get(path, 1)
+            listbox.insert("end", f"[{idx:02d}] {score:5.1f}% ({count} chunks)  {path}")
             files_for_rows.append(path)
 
         def on_open_selected(event=None):
             selection = listbox.curselection()
             if not selection:
                 return
-            idx = selection[0]
-            rel_path = files_for_rows[idx]
+            idx_sel = selection[0]
+            rel_path = files_for_rows[idx_sel]
 
             if repo_root:
                 full_path = os.path.join(repo_root, rel_path)
