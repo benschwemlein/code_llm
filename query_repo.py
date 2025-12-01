@@ -14,6 +14,10 @@ CHROMA_DIR = "./chroma_repo"
 COLLECTION_NAME = "repo_chunks"
 DEFAULT_TOP_K = 8
 
+# If the question is longer than this many characters,
+# we first ask llama3.1 to summarize it into a shorter query text.
+MAX_DIRECT_EMBED_CHARS = 4000
+
 
 def embed_text(text: str):
     url = "http://localhost:11434/api/embeddings"
@@ -24,6 +28,53 @@ def embed_text(text: str):
         print(f"[embed_text] Body (first 400 chars): {resp.text[:400]!r}", file=sys.stderr)
         resp.raise_for_status()
     return resp.json()["embedding"]
+
+
+def summarize_query(long_text: str) -> str:
+    """
+    Use the chat LLM to rewrite a long bug / log into a compact semantic query.
+    The LLM sees the entire bug text; the embedding model only sees the summary.
+    """
+    system_prompt = (
+        "You are a senior engineer helping with code search.\n"
+        "You will be given a long bug description, Jira ticket text, and/or logs.\n"
+        "Rewrite it as a shorter query that preserves all important technical details\n"
+        "needed to search the codebase."
+    )
+
+    user_prompt = textwrap.dedent(f"""
+    Long bug text:
+
+    {long_text}
+
+    Task:
+    - Rewrite this as a concise search query for a codebase.
+    - Keep all important technical details: class names, endpoints, error messages,
+      stack trace fragments, config keys, error codes, etc.
+    - Remove obvious noise (timestamps, repeated identical lines, huge uninformative blobs).
+    - Length target: a few sentences or a short paragraph.
+    - Do not invent new information.
+    """)
+
+    url = "http://localhost:11434/api/chat"
+    payload = {
+        "model": CHAT_MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "stream": False,
+    }
+
+    resp = requests.post(url, json=payload)
+    if not resp.ok:
+        print(f"[summarize_query] Ollama returned {resp.status_code}", file=sys.stderr)
+        print(f"[summarize_query] Body (first 400 chars): {resp.text[:400]!r}", file=sys.stderr)
+        resp.raise_for_status()
+    data = resp.json()
+    summary = data["message"]["content"].strip()
+    print(f"[query_repo] Summarized long question to {len(summary)} chars for embedding.", file=sys.stderr)
+    return summary
 
 
 def chat_with_context(question, docs, metas):
@@ -42,13 +93,13 @@ def chat_with_context(question, docs, metas):
     You must answer only using the provided snippets.
     If the answer is not in the snippets, say you do not know.
 
-    Context:
-    {context}
-
-    Question:
+    Original user question (possibly long Jira bug / logs):
     {question}
 
-    Answer concisely and point to file paths and classes when possible.
+    Relevant code and documentation snippets:
+    {context}
+
+    Answer concisely and, when possible, point to specific file paths, classes, and methods.
     """)
 
     url = "http://localhost:11434/api/chat"
@@ -132,8 +183,18 @@ def main():
         print(f"[query_repo] Could not open collection '{COLLECTION_NAME}': {e}", file=sys.stderr)
         sys.exit(1)
 
-    print("[query_repo] Embedding question...", file=sys.stderr)
-    q_embedding = embed_text(question)
+    # Decide what text we actually embed
+    if len(question) > MAX_DIRECT_EMBED_CHARS:
+        print(
+            f"[query_repo] Question is {len(question)} chars, summarizing before embedding...",
+            file=sys.stderr,
+        )
+        query_for_embedding = summarize_query(question)
+    else:
+        query_for_embedding = question
+
+    print("[query_repo] Embedding query text...", file=sys.stderr)
+    q_embedding = embed_text(query_for_embedding)
 
     print(f"[query_repo] Querying index for top {args.top_k} snippets...", file=sys.stderr)
     res = collection.query(
