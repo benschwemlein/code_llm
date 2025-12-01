@@ -1,5 +1,6 @@
 import os
 import sys
+import argparse
 import requests
 import chromadb
 from chromadb.config import Settings
@@ -7,9 +8,9 @@ from chromadb.config import Settings
 # Embedding model name in Ollama
 EMBED_MODEL = "nomic-embed-text"
 
-# Chroma storage
-CHROMA_DIR = "./chroma_repo"
-COLLECTION_NAME = "repo_chunks"
+# Default Chroma storage
+DEFAULT_CHROMA_DIR = "./chroma_repo"
+DEFAULT_COLLECTION_NAME = "repo_chunks"
 
 # What file types to index
 INDEX_EXTS = {
@@ -51,8 +52,8 @@ def embed_text(text: str):
     """
     Ask Ollama for an embedding of a single text chunk.
 
-    If there is any problem (500 from Ollama, network error, etc.),
-    return None so the caller can skip this chunk instead of crashing.
+    If there is any problem, return None so the caller can
+    skip this chunk instead of crashing.
     """
     url = "http://localhost:11434/api/embeddings"
     payload = {"model": EMBED_MODEL, "prompt": text}
@@ -65,7 +66,6 @@ def embed_text(text: str):
 
     if resp.status_code != 200:
         print(f"[embed_text] Ollama returned {resp.status_code} for embeddings")
-        # Print some of the response body so you can see why
         try:
             body_preview = resp.text[:400]
             print(f"[embed_text] Response body (first 400 chars): {body_preview}")
@@ -88,26 +88,49 @@ def embed_text(text: str):
 
 
 def main():
-    if len(sys.argv) != 2:
-        print("Usage: python index_repo.py /path/to/repo")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(
+        description="Index a repository into a local Chroma vector store"
+    )
+    parser.add_argument(
+        "repo_root",
+        help="Path to the repository to index"
+    )
+    parser.add_argument(
+        "--index-dir",
+        dest="index_dir",
+        default=DEFAULT_CHROMA_DIR,
+        help=f"Path to Chroma index directory (default {DEFAULT_CHROMA_DIR})"
+    )
+    parser.add_argument(
+        "--collection",
+        dest="collection",
+        default=DEFAULT_COLLECTION_NAME,
+        help=f"Chroma collection name (default {DEFAULT_COLLECTION_NAME})"
+    )
 
-    repo_root = os.path.abspath(sys.argv[1])
+    args = parser.parse_args()
+
+    repo_root = os.path.abspath(args.repo_root)
+    index_dir = args.index_dir
+    collection_name = args.collection
+
     print(f"Indexing repo at {repo_root}")
+    print(f"Using Chroma index directory: {index_dir}")
+    print(f"Using collection name: {collection_name}")
 
     client = chromadb.PersistentClient(
-        path=CHROMA_DIR,
+        path=index_dir,
         settings=Settings(anonymized_telemetry=False)
     )
 
-    # Reset collection
+    # Reset collection for this index
     try:
-        client.delete_collection(COLLECTION_NAME)
+        client.delete_collection(collection_name)
     except Exception:
         pass
 
     collection = client.get_or_create_collection(
-        name=COLLECTION_NAME,
+        name=collection_name,
         metadata={"description": "Code and documentation chunks"}
     )
 
