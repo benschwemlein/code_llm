@@ -1,75 +1,22 @@
 import json
-import textwrap
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from tkinter.scrolledtext import ScrolledText
-
-
-DEFAULT_SUMMARIZER_PROMPT = textwrap.dedent("""
-    You are a senior engineer helping with code search.
-
-    You will be given a long bug description, Jira ticket text, logs, and sometimes SQL queries.
-    Your job is to rewrite it as a shorter query that preserves all important technical details
-    needed to search the codebase.
-
-    Long bug text:
-
-    <<BUG_TEXT>>
-
-    Task:
-    - Rewrite this as a concise search query for a codebase.
-    - Keep all important technical details: class names, endpoints, error messages,
-      stack trace fragments, config keys, error codes, i18n string keys, table and column names,
-      and SQL fragments.
-    - Never remove or alter i18n keys, table or column names, or any text that looks like SQL.
-    - Remove obvious noise.
-    - Length target: a few sentences or a short paragraph.
-    - Do not invent new information.
-""").strip()
-
-
-DEFAULT_CHAT_PROMPT = textwrap.dedent("""
-    You are a senior engineer working on a large Java and Angular based retail point of sale system.
-
-    You will be given:
-    - A bug description, which may include SQL, database results, UI behavior, and business context.
-    - A set of code snippets retrieved as relevant to that bug.
-
-    Your job:
-    - Explain the likely root cause of the bug using the snippets as evidence.
-    - Point to specific files, classes, and methods involved.
-    - Explain what needs to be changed and where in order to fix the bug.
-    - When possible, explain how to make the fix data driven so that future changes only require updating
-      database or configuration entries rather than code.
-
-    Bug description:
-    <<BUG_TEXT>>
-
-    Relevant code and documentation snippets:
-    <<SNIPPETS>>
-
-    Answer directly in terms of the bug.
-    Separate clearly:
-    - Facts that are directly supported by the snippets.
-    - Hypotheses or guesses that go beyond the snippets.
-""").strip()
 
 
 class PromptsTab(ttk.Frame):
     """
     Tab for viewing and editing the summarizer and chat prompt templates.
 
-    QueryTab is expected to read from:
-        prompts_tab.summarizer_text
-        prompts_tab.chat_prompt_text
+    These are used by the Query tab when building requests to the LLM.
     """
 
     def __init__(self, parent):
         super().__init__(parent)
-        self._build_prompts_tab()
+        self._build_ui()
         self._set_default_prompts()
 
-    def _build_prompts_tab(self):
+    def _build_ui(self):
         ctl_frame = ttk.Frame(self)
         ctl_frame.pack(fill="x", padx=8, pady=4)
 
@@ -93,11 +40,11 @@ class PromptsTab(ttk.Frame):
 
         sum_label = ttk.Label(
             sum_frame,
-            text="Use <<BUG_TEXT>> where the full bug description should go.",
+            text="Use <<BUG_TEXT>> where the full input description should go.",
         )
         sum_label.pack(anchor="w", padx=4, pady=2)
 
-        self.summarizer_text = ScrolledText(sum_frame, wrap="word", height=10)
+        self.summarizer_text = ScrolledText(sum_frame, wrap="word", height=12)
         self.summarizer_text.pack(fill="both", expand=True, padx=4, pady=4)
 
         # Chat prompt
@@ -106,19 +53,66 @@ class PromptsTab(ttk.Frame):
 
         chat_label = ttk.Label(
             chat_frame,
-            text="Use <<BUG_TEXT>> for bug description and <<SNIPPETS>> for retrieved code snippets.",
+            text="Use <<BUG_TEXT>> for the investigation description and <<SNIPPETS>> for retrieved code snippets.",
         )
         chat_label.pack(anchor="w", padx=4, pady=2)
 
-        self.chat_prompt_text = ScrolledText(chat_frame, wrap="word", height=12)
+        self.chat_prompt_text = ScrolledText(chat_frame, wrap="word", height=14)
         self.chat_prompt_text.pack(fill="both", expand=True, padx=4, pady=4)
 
     def _set_default_prompts(self):
+        summarizer_default = (
+            "You are a senior engineer helping with code search.\n\n"
+            "You will be given a long input that may be a question, Jira ticket text, investigation notes, logs, or SQL.\n"
+            "Sometimes it describes a bug, other times it is simply trying to understand how a feature or flow works.\n"
+            "Your job is to rewrite it as a shorter query that preserves all important technical details needed\n"
+            "to search the codebase.\n\n"
+            "Full input:\n\n"
+            "<<BUG_TEXT>>\n\n"
+            "Task:\n"
+            "1) Rewrite this as a concise search query for a codebase, suitable for either tracking down a bug\n"
+            "   or exploring how the code implements a behavior.\n"
+            "2) Keep all important technical details such as class names, endpoints, error messages,\n"
+            "   stack trace fragments, config keys, error codes, i18n string keys, table and column names,\n"
+            "   and SQL fragments.\n"
+            "3) Never remove or alter i18n keys, table or column names, or any text that looks like SQL.\n"
+            "4) Remove obvious noise such as greetings, scheduling chatter, and unrelated context.\n"
+            "5) Aim for a few sentences or a short paragraph.\n"
+            "6) Do not invent new information.\n"
+        )
+
+        chat_default = (
+            "You are a senior engineer working on a large Java and Angular based retail point of sale system.\n\n"
+            "You will be given:\n"
+            "1) A description of what the user is investigating, which may include SQL, database results,\n"
+            "   UI behavior, observed bugs, performance concerns, or general questions about how a feature works.\n"
+            "2) A set of code snippets retrieved as relevant to that description.\n\n"
+            "Your job:\n"
+            "1) Explain what the relevant code is doing and how it fits into the overall flow of the system.\n"
+            "2) Point to specific files, classes, methods, configuration keys, and database objects that matter.\n"
+            "3) Describe how data and control move through the code, including important preconditions,\n"
+            "   side effects, and error handling.\n"
+            "4) If the description mentions a bug or suspicious behavior, explain the likely cause using\n"
+            "   the snippets as evidence and outline what would need to change and where.\n"
+            "5) When it makes sense, explain how to make the behavior more configurable so that future changes\n"
+            "   can be done through database or configuration updates instead of code changes.\n\n"
+            "Investigation description:\n"
+            "<<BUG_TEXT>>\n\n"
+            "Relevant code and documentation snippets:\n"
+            "<<SNIPPETS>>\n\n"
+            "Answer:\n"
+            "1) Start by summarizing what the user seems to be trying to understand or debug.\n"
+            "2) Then explain, in concrete terms, what the shown code does.\n"
+            "3) Clearly separate:\n"
+            "   a) Facts that are directly supported by the snippets.\n"
+            "   b) Hypotheses or guesses that go beyond the snippets, and label them as such.\n"
+        )
+
         self.summarizer_text.delete("1.0", "end")
-        self.summarizer_text.insert("1.0", DEFAULT_SUMMARIZER_PROMPT)
+        self.summarizer_text.insert("1.0", summarizer_default)
 
         self.chat_prompt_text.delete("1.0", "end")
-        self.chat_prompt_text.insert("1.0", DEFAULT_CHAT_PROMPT)
+        self.chat_prompt_text.insert("1.0", chat_default)
 
     def load_prompts_from_file(self):
         path = filedialog.askopenfilename(

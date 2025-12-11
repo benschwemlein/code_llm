@@ -1,6 +1,5 @@
 import os
 import sys
-import textwrap
 import threading
 import subprocess
 from datetime import datetime
@@ -30,55 +29,6 @@ def open_file_cross_platform(path: str):
             subprocess.Popen(["xdg-open", path])
     except Exception as e:
         messagebox.showerror("Error", f"Could not open file:\n{e}")
-
-
-DEFAULT_SUMMARIZER_PROMPT = textwrap.dedent("""
-    You are a senior engineer helping with code search.
-
-    You will be given a long bug description, Jira ticket text, logs, and sometimes SQL queries.
-    Your job is to rewrite it as a shorter query that preserves all important technical details
-    needed to search the codebase.
-
-    Long bug text:
-
-    <<BUG_TEXT>>
-
-    Task:
-    - Rewrite this as a concise search query for a codebase.
-    - Keep all important technical details: class names, endpoints, error messages,
-      stack trace fragments, config keys, error codes, i18n string keys, table and column names,
-      and SQL fragments.
-    - Never remove or alter i18n keys, table or column names, or any text that looks like SQL.
-    - Remove obvious noise.
-    - Length target: a few sentences or a short paragraph.
-    - Do not invent new information.
-""").strip()
-
-DEFAULT_CHAT_PROMPT = textwrap.dedent("""
-    You are a senior engineer working on a large Java and Angular based retail point of sale system.
-
-    You will be given:
-    - A bug description, which may include SQL, database results, UI behavior, and business context.
-    - A set of code snippets retrieved as relevant to that bug.
-
-    Your job:
-    - Explain the likely root cause of the bug using the snippets as evidence.
-    - Point to specific files, classes, and methods involved.
-    - Explain what needs to be changed and where in order to fix the bug.
-    - When possible, explain how to make the fix data driven so that future changes only require updating
-      database or configuration entries rather than code.
-
-    Bug description:
-    <<BUG_TEXT>>
-
-    Relevant code and documentation snippets:
-    <<SNIPPETS>>
-
-    Answer directly in terms of the bug.
-    Separate clearly:
-    - Facts that are directly supported by the snippets.
-    - Hypotheses or guesses that go beyond the snippets.
-""").strip()
 
 
 class QueryTab(ttk.Frame):
@@ -324,8 +274,25 @@ class QueryTab(ttk.Frame):
             messagebox.showerror("Error", "Summarize threshold must be an integer.")
             return
 
-        sum_template = self.get_summarizer_prompt() or DEFAULT_SUMMARIZER_PROMPT
-        chat_template = self.get_chat_prompt() or DEFAULT_CHAT_PROMPT
+        # Get prompts from Prompts tab
+        sum_template = (self.get_summarizer_prompt() or "").strip()
+        chat_template = (self.get_chat_prompt() or "").strip()
+
+        if not sum_template:
+            messagebox.showerror(
+                "Error",
+                "Summarizer prompt is empty.\n\n"
+                "Open the Prompts tab and provide a summarizer prompt before running a query.",
+            )
+            return
+
+        if not chat_template:
+            messagebox.showerror(
+                "Error",
+                "Answer prompt is empty.\n\n"
+                "Open the Prompts tab and provide an answer prompt before running a query.",
+            )
+            return
 
         # Disable UI and start progress indicator
         self.run_btn.config(state="disabled")
