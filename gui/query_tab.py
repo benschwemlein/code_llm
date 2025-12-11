@@ -107,35 +107,49 @@ class QueryTab(ttk.Frame):
         self._build_query_tab()
 
     def _build_query_tab(self):
+        # Parameters section
         params_frame = ttk.LabelFrame(self, text="Parameters")
         params_frame.pack(fill="x", padx=8, pady=8)
 
+        # Index directory
         ttk.Label(params_frame, text="Index directory:").grid(row=0, column=0, sticky="w")
         self.index_dir_var = tk.StringVar(value=DEFAULT_INDEX_DIR)
         self.index_dir_entry = ttk.Entry(params_frame, textvariable=self.index_dir_var, width=60)
         self.index_dir_entry.grid(row=0, column=1, sticky="we", padx=4)
         browse_idx_btn = ttk.Button(params_frame, text="Browse", command=self.browse_index_dir)
         browse_idx_btn.grid(row=0, column=2, padx=4)
+        idx_help_btn = ttk.Button(params_frame, text="?", width=2, command=self._help_index_dir)
+        idx_help_btn.grid(row=0, column=3, sticky="e", padx=2)
 
-        ttk.Label(params_frame, text="Repo root:").grid(row=1, column=0, sticky="w")
+        # Repo root
+        ttk.Label(params_frame, text="Repository root (optional):").grid(row=1, column=0, sticky="w")
         self.repo_root_var = tk.StringVar(value=DEFAULT_REPO_ROOT)
         self.repo_root_entry = ttk.Entry(params_frame, textvariable=self.repo_root_var, width=60)
         self.repo_root_entry.grid(row=1, column=1, sticky="we", padx=4)
         browse_repo_btn = ttk.Button(params_frame, text="Browse", command=self.browse_repo_root)
         browse_repo_btn.grid(row=1, column=2, padx=4)
+        repo_help_btn = ttk.Button(params_frame, text="?", width=2, command=self._help_repo_root)
+        repo_help_btn.grid(row=1, column=3, sticky="e", padx=2)
 
-        ttk.Label(params_frame, text="Top K:").grid(row=2, column=0, sticky="w")
+        # Number of results (Top K)
+        ttk.Label(params_frame, text="Number of results to retrieve:").grid(row=2, column=0, sticky="w")
         self.top_k_var = tk.StringVar(value=str(DEFAULT_TOP_K))
         self.top_k_entry = ttk.Entry(params_frame, textvariable=self.top_k_var, width=10)
         self.top_k_entry.grid(row=2, column=1, sticky="w", padx=4)
+        topk_help_btn = ttk.Button(params_frame, text="?", width=2, command=self._help_top_k)
+        topk_help_btn.grid(row=2, column=3, sticky="e", padx=2)
 
-        ttk.Label(params_frame, text="Max chars before summarize:").grid(row=3, column=0, sticky="w")
+        # Max chars before summarizing
+        ttk.Label(params_frame, text="Summarize text longer than (characters):").grid(row=3, column=0, sticky="w")
         self.max_chars_var = tk.StringVar(value=str(DEFAULT_MAX_DIRECT_EMBED_CHARS))
         self.max_chars_entry = ttk.Entry(params_frame, textvariable=self.max_chars_var, width=10)
         self.max_chars_entry.grid(row=3, column=1, sticky="w", padx=4)
+        maxchars_help_btn = ttk.Button(params_frame, text="?", width=2, command=self._help_max_chars)
+        maxchars_help_btn.grid(row=3, column=3, sticky="e", padx=2)
 
         params_frame.columnconfigure(1, weight=1)
 
+        # Bug text frame
         bug_frame = ttk.LabelFrame(self, text="Bug or Question")
         bug_frame.pack(fill="both", expand=True, padx=8, pady=4)
 
@@ -181,6 +195,47 @@ class QueryTab(ttk.Frame):
         view_files_btn = ttk.Button(output_btn_frame, text="View result files", command=self.show_files_window)
         view_files_btn.pack(side="right")
 
+    # Help popups for parameters
+
+    def _help_index_dir(self):
+        messagebox.showinfo(
+            "Index directory",
+            "Folder where the Chroma vector database is stored.\n\n"
+            "This directory is created when you index a repository from the Index tab.\n"
+            "Queries read embeddings from here. If you delete or move it, you need to\n"
+            "re index the repository."
+        )
+
+    def _help_repo_root(self):
+        messagebox.showinfo(
+            "Repository root",
+            "Optional root folder of the source repository you indexed.\n\n"
+            "If this is set, double clicking a result path will try to open the\n"
+            "underlying file from that repository. If it is empty, you will still\n"
+            "see file paths, but double click may not open anything."
+        )
+
+    def _help_top_k(self):
+        messagebox.showinfo(
+            "Number of results to retrieve",
+            "How many relevant code snippets to fetch from the index for each query.\n\n"
+            "Typical values:\n"
+            "  8 to 16  fast and focused\n"
+            "  20 to 30 more thorough but slower\n\n"
+            "Higher values give the model more context but can make answers slower\n"
+            "and sometimes less precise."
+        )
+
+    def _help_max_chars(self):
+        messagebox.showinfo(
+            "Summarize text longer than",
+            "If your bug description is longer than this many characters, the app\n"
+            "asks the chat model to summarize it into a shorter query before\n"
+            "embedding.\n\n"
+            "Recommended range: 3000 to 6000 characters.\n"
+            "Set a very large value if you prefer no summarization."
+        )
+
     def browse_index_dir(self):
         path = filedialog.askdirectory(initialdir=self.index_dir_var.get() or os.path.expanduser("~"))
         if path:
@@ -208,7 +263,7 @@ class QueryTab(ttk.Frame):
         self.bug_text.delete("1.0", "end")
         self.bug_text.insert("1.0", content)
 
-    # Thread-safe logging callback used by query_engine.run_query
+    # Thread safe logging callback used by query_engine.run_query
     def _log(self, text: str):
         self.after(0, lambda: self._append_output(text))
 
@@ -260,13 +315,13 @@ class QueryTab(ttk.Frame):
         try:
             top_k = int(self.top_k_var.get().strip())
         except ValueError:
-            messagebox.showerror("Error", "Top K must be an integer.")
+            messagebox.showerror("Error", "Number of results must be an integer.")
             return
 
         try:
             max_chars = int(self.max_chars_var.get().strip())
         except ValueError:
-            messagebox.showerror("Error", "Max chars must be an integer.")
+            messagebox.showerror("Error", "Summarize threshold must be an integer.")
             return
 
         sum_template = self.get_summarizer_prompt() or DEFAULT_SUMMARIZER_PROMPT
@@ -275,7 +330,7 @@ class QueryTab(ttk.Frame):
         # Disable UI and start progress indicator
         self.run_btn.config(state="disabled")
         self.status_label.config(text="Running query...")
-        self.progress.start(10)  # 10ms step for indeterminate bar
+        self.progress.start(10)
 
         def worker():
             try:
