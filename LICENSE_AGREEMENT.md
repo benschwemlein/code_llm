@@ -32,11 +32,17 @@ Submitting a feature request, bug report, suggestion, or other feedback does not
 You agree that you will not do any of the following.
 
 a. Use the software to create a new product or version that replaces or supersedes this Agreement or attempts to avoid its terms.
+
 b. Provide the software to any external company, employer, or organization unless you have explicit written permission or a GitHub invitation from Ben Schwemlein.
+
 c. Distribute, sell, lease, rent, or make the software available to third parties except as allowed under this Agreement.
+
 d. Sublicense the software or grant any rights in it to another person or entity.
+
 e. Reverse engineer, decompile, or disassemble the software except where required by law and only after giving prior written notice to Ben Schwemlein.
+
 f. Remove or alter any copyright notices, author attributions, or license notices.
+
 g. Use the software for any commercial purpose on behalf of an external organization unless a separate signed agreement with Ben Schwemlein has been executed.
 
 These restrictions do not prohibit normal internal experimentation, exploration of the code, issue reporting, or informal collaboration.
