@@ -26,11 +26,17 @@ This License Agreement governs the use of the software application named Local R
    You agree that you will not do any of the following.
 
    a. Fork, copy, modify, or use the software to create a new product or version that replaces, supersedes, or attempts to avoid this Agreement.
-   b. Use the software on behalf of any company, firm, employer, or organization without explicit written permission from Ben Schwemlein.
+
+   b. Use the software on behalf of any company, firm, employer, or organization without explicit written permission or a github invitation from Ben Schwemlein.
+
    c. Distribute, sell, lease, rent, or otherwise make the software available to any third party, except for personal use under this Agreement.
+
    d. Sublicense the software or grant any rights in it to another person or entity.
+
    e. Reverse engineer, decompile, or disassemble the software, except where required by law and only after giving prior written notice to Ben Schwemlein.
+
    f. Remove or alter any copyright notices, author attributions, or license notices contained in the software.
+
    g. Use the software for any commercial purpose on behalf of an organization unless a separate signed agreement with Ben Schwemlein has been executed.
 
 6. User Data Responsibility
