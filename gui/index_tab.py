@@ -260,6 +260,27 @@ class IndexTab(ttk.Frame):
             ),
         ).grid(row=5, column=3)
 
+        # Exclude directories
+        ttk.Label(params_frame, text="Exclude directories:").grid(row=6, column=0, sticky="w")
+        default_excluded = ".git, .idea, .vscode, node_modules, build, dist, out, target, .gradle, .venv, venv, __pycache__"
+        self.exclude_dirs_var = tk.StringVar(value=default_excluded)
+        ttk.Entry(params_frame, textvariable=self.exclude_dirs_var, width=60).grid(
+            row=6, column=1, sticky="we", padx=4
+        )
+        ttk.Button(
+            params_frame,
+            text="?",
+            width=2,
+            command=lambda: self._show_help(
+                "Exclude directories",
+                (
+                    "Comma-separated list of directory names to skip while walking the repo.\n\n"
+                    "The indexer ignores these folders entirely. Useful for build output, dependency folders, "
+                    "virtual environments, and other noise."
+                ),
+            ),
+        ).grid(row=6, column=3)
+
         params_frame.columnconfigure(1, weight=1)
 
         # Collapsible file types section
@@ -402,6 +423,15 @@ class IndexTab(ttk.Frame):
             messagebox.showerror("Error", "Max file size must be greater than zero.")
             return
 
+        # Parse excluded directories
+        raw_excluded = self.exclude_dirs_var.get().strip()
+        excluded_dirs: set[str] = set()
+        if raw_excluded:
+            for part in raw_excluded.split(","):
+                name = part.strip()
+                if name:
+                    excluded_dirs.add(name)
+
         selected_exts = {ext for ext, var in self._ext_vars.items() if var.get()}
         if not selected_exts:
             messagebox.showerror("Error", "Choose at least one file type.")
@@ -418,6 +448,7 @@ class IndexTab(ttk.Frame):
                     index_dir=index_dir,
                     collection_name=collection_name,
                     index_exts=selected_exts,
+                    excluded_dirs=excluded_dirs,
                     max_file_bytes=max_bytes,
                     chars_per_chunk=chars,
                     chunk_overlap=overlap,

@@ -5,7 +5,7 @@ from chromadb.config import Settings
 
 import config
 
-# Common text-based code and project file types
+# Common text based code and project file types
 DEFAULT_INDEX_EXTS: set[str] = {
     # Microsoft / .NET
     ".cs",
@@ -47,7 +47,7 @@ DEFAULT_INDEX_EXTS: set[str] = {
     ".css", ".scss", ".less",
     ".json", ".json5",
 
-    # Python / data science
+    # Python / data
     ".py",
     ".pyi",
     ".ipynb",
@@ -60,6 +60,7 @@ DEFAULT_INDEX_EXTS: set[str] = {
     ".plist",
     ".storyboard",
     ".xib",
+    # .xml is already included above
 
     # C / C++ / embedded
     ".c",
@@ -76,14 +77,14 @@ DEFAULT_INDEX_EXTS: set[str] = {
     ".swift",
     ".m", ".mm",
 
-    # Cloud / infrastructure as code
+    # Cloud / IaC
     ".tf",
     ".tfvars",
     ".yaml",
     ".yml",
-    ".json",  # already listed above, but set() will dedupe
+    # .json already included above
 
-    # SQL / query languages
+    # SQL / query
     ".sql",
     ".psql",
     ".hql",
@@ -112,7 +113,7 @@ CHUNK_OVERLAP = 200
 
 def should_index_file(path: str, index_exts: set[str]) -> bool:
     """
-    Return True if the file at 'path' should be indexed based on its extension.
+    Return True if the file at path should be indexed based on its extension.
     """
     _, ext = os.path.splitext(path)
     return ext.lower() in index_exts
@@ -143,7 +144,7 @@ def embed_text(text: str):
     payload = {"model": config.EMBED_MODEL, "prompt": text}
 
     try:
-        resp = requests.post(url, json=payload)
+        resp = requests.post(url, json=payload, timeout=60)
         if resp.status_code != 200:
             return None
         data = resp.json()
@@ -157,6 +158,7 @@ def index_repo(
     index_dir: str | None = None,
     collection_name: str | None = None,
     index_exts: set[str] | None = None,
+    excluded_dirs: set[str] | None = None,
     max_file_bytes: int = MAX_FILE_BYTES,
     chars_per_chunk: int = CHARS_PER_CHUNK,
     chunk_overlap: int = CHUNK_OVERLAP,
@@ -165,12 +167,20 @@ def index_repo(
     """
     Walk a repo, chunk supported files, embed each chunk, and write them into a Chroma collection.
 
-    Parameters are usually set from the GUI, but sensible defaults exist for headless use.
+    Most parameters can be overridden by the GUI. Defaults allow headless use.
     """
     repo_root = os.path.abspath(repo_root)
     index_dir = index_dir or config.DEFAULT_INDEX_DIR
     collection_name = collection_name or config.DEFAULT_COLLECTION_NAME
     index_exts = index_exts or DEFAULT_INDEX_EXTS
+
+    default_excluded = {
+        ".git", ".idea", ".vscode",
+        "node_modules",
+        "build", "dist", "out", "target", ".gradle",
+        ".venv", "venv", "__pycache__",
+    }
+    excluded_dirs = excluded_dirs or default_excluded
 
     log(f"Indexing repo at {repo_root}")
     log(f"Using Chroma index directory: {index_dir}")
@@ -181,6 +191,7 @@ def index_repo(
     log(f"Chars per chunk: {chars_per_chunk}")
     log(f"Chunk overlap: {chunk_overlap}")
     log(f"File types: {', '.join(sorted(index_exts))}")
+    log(f"Excluded directories: {', '.join(sorted(excluded_dirs))}")
 
     client = chromadb.PersistentClient(
         path=index_dir,
@@ -191,7 +202,7 @@ def index_repo(
     try:
         client.delete_collection(collection_name)
     except Exception:
-        # ok if it doesn't exist yet
+        # fine if it does not exist yet
         pass
 
     collection = client.get_or_create_collection(
@@ -203,16 +214,8 @@ def index_repo(
     file_count = 0
 
     for root, dirs, files in os.walk(repo_root):
-        # Skip typical build / IDE / dependency directories
-        dirs[:] = [
-            d for d in dirs
-            if d not in {
-                ".git", ".idea", ".vscode",
-                "node_modules",
-                "build", "dist", "out", "target", ".gradle",
-                ".venv", "venv", "__pycache__",
-            }
-        ]
+        # Filter out excluded directories in place
+        dirs[:] = [d for d in dirs if d not in excluded_dirs]
 
         for fname in files:
             full = os.path.join(root, fname)
@@ -224,7 +227,7 @@ def index_repo(
                 if os.path.getsize(full) > max_file_bytes:
                     continue
             except OSError:
-                # If we cannot stat it, skip
+                # if we cannot stat it, skip
                 continue
 
             try:
