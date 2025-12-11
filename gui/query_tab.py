@@ -1,6 +1,7 @@
 import os
 import sys
 import textwrap
+import threading
 import subprocess
 from datetime import datetime
 import tkinter as tk
@@ -101,6 +102,8 @@ class QueryTab(ttk.Frame):
         self.last_index_dir = None
         self.last_repo_root = None
 
+        self._current_thread = None
+
         self._build_query_tab()
 
     def _build_query_tab(self):
@@ -145,8 +148,18 @@ class QueryTab(ttk.Frame):
         load_btn = ttk.Button(btn_frame, text="Load from file", command=self.load_bug_from_file)
         load_btn.pack(side="left")
 
-        run_btn = ttk.Button(btn_frame, text="Run query", command=self.run_query)
-        run_btn.pack(side="right")
+        self.run_btn = ttk.Button(btn_frame, text="Run query", command=self.run_query)
+        self.run_btn.pack(side="right")
+
+        # Status + progress indicator
+        status_frame = ttk.Frame(self)
+        status_frame.pack(fill="x", padx=8, pady=(0, 4))
+
+        self.status_label = ttk.Label(status_frame, text="Idle")
+        self.status_label.pack(side="left")
+
+        self.progress = ttk.Progressbar(status_frame, mode="indeterminate")
+        self.progress.pack(side="right", fill="x", expand=True, padx=(8, 0))
 
         # Single combined response area
         output_frame = ttk.LabelFrame(self, text="Response")
@@ -195,7 +208,11 @@ class QueryTab(ttk.Frame):
         self.bug_text.delete("1.0", "end")
         self.bug_text.insert("1.0", content)
 
-    def append_output(self, text: str):
+    # Thread-safe logging callback used by query_engine.run_query
+    def _log(self, text: str):
+        self.after(0, lambda: self._append_output(text))
+
+    def _append_output(self, text: str):
         self.response_text.insert("end", text + "\n")
         self.response_text.see("end")
         self.update_idletasks()
@@ -227,6 +244,11 @@ class QueryTab(ttk.Frame):
         messagebox.showinfo("Saved", f"Response saved to:\n{path}")
 
     def run_query(self):
+        # Do not start another query while one is running
+        if self._current_thread and self._current_thread.is_alive():
+            messagebox.showinfo("Info", "A query is already running.")
+            return
+
         # Clear response and last results
         self.response_text.delete("1.0", "end")
         self.last_results = None
@@ -250,20 +272,42 @@ class QueryTab(ttk.Frame):
         sum_template = self.get_summarizer_prompt() or DEFAULT_SUMMARIZER_PROMPT
         chat_template = self.get_chat_prompt() or DEFAULT_CHAT_PROMPT
 
-        try:
-            result = run_query(
-                bug_text=bug,
-                index_dir=index_dir,
-                repo_root=repo_root or "",
-                top_k=top_k,
-                max_chars=max_chars,
-                summarizer_template=sum_template,
-                chat_template=chat_template,
-                log=self.append_output,
-            )
-        except Exception as e:
-            messagebox.showerror("Error", str(e))
-            return
+        # Disable UI and start progress indicator
+        self.run_btn.config(state="disabled")
+        self.status_label.config(text="Running query...")
+        self.progress.start(10)  # 10ms step for indeterminate bar
+
+        def worker():
+            try:
+                result = run_query(
+                    bug_text=bug,
+                    index_dir=index_dir,
+                    repo_root=repo_root or "",
+                    top_k=top_k,
+                    max_chars=max_chars,
+                    summarizer_template=sum_template,
+                    chat_template=chat_template,
+                    log=self._log,
+                )
+            except Exception as e:
+                self.after(0, lambda: self._on_query_error(e))
+                return
+
+            self.after(0, lambda: self._on_query_done(result, index_dir, repo_root))
+
+        self._current_thread = threading.Thread(target=worker, daemon=True)
+        self._current_thread.start()
+
+    def _on_query_error(self, error: Exception):
+        self.progress.stop()
+        self.run_btn.config(state="normal")
+        self.status_label.config(text="Failed")
+        messagebox.showerror("Error", str(error))
+
+    def _on_query_done(self, result: dict, index_dir: str, repo_root: str):
+        self.progress.stop()
+        self.run_btn.config(state="normal")
+        self.status_label.config(text="Done")
 
         answer = result["answer"]
         docs = result["docs"]
@@ -278,8 +322,8 @@ class QueryTab(ttk.Frame):
         self.last_index_dir = index_dir
         self.last_repo_root = repo_root
 
-        self.append_output("\n=== ANSWER ===\n")
-        self.append_output(answer)
+        self._append_output("\n=== ANSWER ===\n")
+        self._append_output(answer)
 
     def show_files_window(self):
         if not self.last_results:
