@@ -5,31 +5,25 @@ from tkinter import ttk
 from gui.prompts_tab import PromptsTab
 from gui.query_tab import QueryTab
 from gui.index_tab import IndexTab
+from gui.settings_tab import SettingsTab
+from config import APP_TITLE
 
 
 class CodeSearchApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Local RAG LLM")
-
-        # Optional: minimum size
-        self.minsize(900, 600)
+        self.minsize(1800, 1200)
 
         notebook = ttk.Notebook(self)
-        notebook.pack(fill="both", expand=True)
-
-        # Prompts tab first so QueryTab can read from it
-        prompts_tab = PromptsTab(notebook)
-        notebook.add(prompts_tab, text="Prompts")
+        notebook.pack(fill="both", expand=True)       
 
         def get_summarizer_prompt():
-            # Text without trailing newline
             return prompts_tab.summarizer_text.get("1.0", "end-1c")
 
         def get_chat_prompt():
             return prompts_tab.chat_prompt_text.get("1.0", "end-1c")
 
-        # Query tab: uses prompts from PromptsTab
         query_tab = QueryTab(
             notebook,
             get_summarizer_prompt=get_summarizer_prompt,
@@ -37,12 +31,15 @@ class CodeSearchApp(tk.Tk):
         )
         notebook.add(query_tab, text="Query")
 
-        # Index tab: runs repo indexing
         index_tab = IndexTab(notebook)
         notebook.add(index_tab, text="Index")
 
+        prompts_tab = PromptsTab(notebook)
+        notebook.add(prompts_tab, text="Prompts")
 
-        # Select Query tab by default
+        settings_tab = SettingsTab(notebook)
+        notebook.add(settings_tab, text="Settings")
+
         notebook.select(query_tab)
 
 

@@ -1,16 +1,9 @@
-# indexing/indexer.py
-
 import os
 import requests
 import chromadb
 from chromadb.config import Settings
 
-from config import (
-    OLLAMA_URL,
-    EMBED_MODEL,
-    DEFAULT_COLLECTION_NAME,
-    DEFAULT_INDEX_DIR,
-)
+import config
 
 INDEX_EXTS = {
     ".java", ".kt",
@@ -18,7 +11,7 @@ INDEX_EXTS = {
     ".js", ".jsx",
     ".html", ".css", ".scss",
     ".md", ".rst", ".adoc", ".txt",
-    ".yml", ".yaml", ".json"
+    ".yml", ".yaml", ".json",
 }
 
 MAX_FILE_BYTES = 500_000
@@ -45,8 +38,8 @@ def chunk_text(text: str, max_len: int, overlap: int):
 
 
 def embed_text(text: str):
-    url = f"{OLLAMA_URL.rstrip('/')}/api/embeddings"
-    payload = {"model": EMBED_MODEL, "prompt": text}
+    url = f"{config.OLLAMA_URL.rstrip('/')}/api/embeddings"
+    payload = {"model": config.EMBED_MODEL, "prompt": text}
 
     try:
         resp = requests.post(url, json=payload)
@@ -54,7 +47,7 @@ def embed_text(text: str):
             return None
         data = resp.json()
         return data.get("embedding")
-    except:
+    except Exception:
         return None
 
 
@@ -64,17 +57,15 @@ def index_repo(
     collection_name: str | None = None,
     log=print,
 ):
-    """
-    Perform the actual indexing.
-    Does NOT contain GUI code.
-    """
     repo_root = os.path.abspath(repo_root)
-    index_dir = index_dir or DEFAULT_INDEX_DIR
-    collection_name = collection_name or DEFAULT_COLLECTION_NAME
+    index_dir = index_dir or config.DEFAULT_INDEX_DIR
+    collection_name = collection_name or config.DEFAULT_COLLECTION_NAME
 
     log(f"Indexing repo at {repo_root}")
     log(f"Using Chroma index directory: {index_dir}")
     log(f"Using collection name: {collection_name}")
+    log(f"Using Ollama URL: {config.OLLAMA_URL}")
+    log(f"Using embed model: {config.EMBED_MODEL}")
 
     client = chromadb.PersistentClient(
         path=index_dir,
@@ -83,7 +74,7 @@ def index_repo(
 
     try:
         client.delete_collection(collection_name)
-    except:
+    except Exception:
         pass
 
     collection = client.get_or_create_collection(
@@ -97,7 +88,10 @@ def index_repo(
     for root, dirs, files in os.walk(repo_root):
         dirs[:] = [
             d for d in dirs
-            if d not in {".git", ".idea", "node_modules", "build", "dist", "out", "target", ".gradle"}
+            if d not in {
+                ".git", ".idea", "node_modules",
+                "build", "dist", "out", "target", ".gradle",
+            }
         ]
 
         for fname in files:
@@ -108,13 +102,13 @@ def index_repo(
             try:
                 if os.path.getsize(full) > MAX_FILE_BYTES:
                     continue
-            except:
+            except OSError:
                 continue
 
             try:
                 with open(full, "r", encoding="utf8", errors="ignore") as f:
                     text = f.read()
-            except:
+            except Exception:
                 continue
 
             if not text.strip():
@@ -133,7 +127,7 @@ def index_repo(
                     ids=[f"{rel}::chunk_{idx}"],
                     documents=[chunk],
                     metadatas=[{"path": rel, "chunk_index": idx}],
-                    embeddings=[embedding]
+                    embeddings=[embedding],
                 )
 
                 chunk_count += 1

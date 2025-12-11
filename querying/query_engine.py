@@ -5,18 +5,14 @@ import requests
 import chromadb
 from chromadb.config import Settings
 
-from config import (
-    OLLAMA_URL,
-    EMBED_MODEL,
-    CHAT_MODEL,
-)
+import config  # note: import module, not constants
 
 LogFn = Callable[[str], Any]
 
 
 def _embed_text(text: str, log: LogFn) -> list[float] | None:
-    url = f"{OLLAMA_URL.rstrip('/')}/api/embeddings"
-    payload = {"model": EMBED_MODEL, "prompt": text}
+    url = f"{config.OLLAMA_URL.rstrip('/')}/api/embeddings"
+    payload = {"model": config.EMBED_MODEL, "prompt": text}
 
     try:
         resp = requests.post(url, json=payload)
@@ -52,9 +48,9 @@ def _summarize_query(long_text: str, template: str, log: LogFn) -> str:
     else:
         user_content = template + "\n\nBug text:\n" + long_text
 
-    url = f"{OLLAMA_URL.rstrip('/')}/api/chat"
+    url = f"{config.OLLAMA_URL.rstrip('/')}/api/chat"
     payload = {
-        "model": CHAT_MODEL,
+        "model": config.CHAT_MODEL,
         "messages": [
             {"role": "user", "content": user_content},
         ],
@@ -105,9 +101,9 @@ def _chat_with_context(question: str, docs, metas, template: str, log: LogFn) ->
     else:
         prompt = prompt + "\n\nRelevant snippets:\n" + snippets_text
 
-    url = f"{OLLAMA_URL.rstrip('/')}/api/chat"
+    url = f"{config.OLLAMA_URL.rstrip('/')}/api/chat"
     payload = {
-        "model": CHAT_MODEL,
+        "model": config.CHAT_MODEL,
         "messages": [
             {"role": "user", "content": prompt},
         ],
@@ -156,9 +152,6 @@ def run_query(
     chat_template: str,
     log: LogFn = print,
 ) -> dict:
-    """
-    Core query workflow, separated from GUI.
-    """
     if not index_dir:
         raise ValueError("Index directory is required.")
     if not os.path.isdir(index_dir):
@@ -199,6 +192,9 @@ def run_query(
         raise RuntimeError(f"Could not open collection from index directory: {e}") from e
 
     log(f"[query_engine] Using index directory: {index_dir}")
+    log(f"[query_engine] Using embed model: {config.EMBED_MODEL}")
+    log(f"[query_engine] Using chat model: {config.CHAT_MODEL}")
+    log(f"[query_engine] Using Ollama URL: {config.OLLAMA_URL}")
 
     query_for_embedding = bug
     if len(bug) > max_chars:
