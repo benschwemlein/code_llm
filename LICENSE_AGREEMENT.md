@@ -39,7 +39,7 @@ This License Agreement governs the use of the software application named Local R
 
    g. Use the software for any commercial purpose on behalf of an organization unless a separate signed agreement with Ben Schwemlein has been executed.
 
-   h.  All Employees and Partners at Leading Edje LLC are free to use this product individual developers for personal, educational, or professional work.
+   h.  All Employees and Partners at Leading Edje LLC are free to use this product as individual developers for personal, educational, or professional work.
 
 7. User Data Responsibility
    You are solely responsible for ensuring you have the legal right to process any code, data, or other material with Local RAG LLM.
