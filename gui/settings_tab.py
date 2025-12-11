@@ -1,8 +1,9 @@
+import json
+import requests
 import tkinter as tk
 from tkinter import ttk, messagebox
 
 import config
-import requests
 
 
 # Simple curated metadata for common models.
@@ -54,6 +55,19 @@ MODEL_INFO = {
     ),
 }
 
+# Suggested models to show in the download dropdown
+SUGGESTED_PULL_MODELS = [
+    "nomic-embed-text",
+    "all-minilm",
+    "llama3.1:8b",
+    "llama3.1:70b",
+    "llama3:8b",
+    "qwen2.5:7b",
+    "mistral:7b",
+    "mixtral:8x7b",
+    "phi3:3.8b",
+]
+
 
 def describe_model(name: str):
     """
@@ -92,30 +106,40 @@ class SettingsTab(ttk.Frame):
         self.embed_combo = None
         self.chat_combo = None
 
+        self.ollama_online = False
+        self.status_var: tk.StringVar | None = None
+        self.status_label: ttk.Label | None = None
+
         self._load_models_from_ollama()
         self._build_ui()
+        self._update_status_indicator()
 
     def _load_models_from_ollama(self):
         """
         Query Ollama for the list of installed models.
 
-        Populates self.available_models. Fails gracefully if Ollama is not reachable.
+        Populates self.available_models and updates self.ollama_online.
+        Fails gracefully if Ollama is not reachable.
         """
         url = f"{config.OLLAMA_URL.rstrip('/')}/api/tags"
+        self.ollama_online = False
         try:
             resp = requests.get(url, timeout=5)
         except Exception:
             self.available_models = []
+            self._update_status_indicator()
             return
 
         if not resp.ok:
             self.available_models = []
+            self._update_status_indicator()
             return
 
         try:
             data = resp.json()
         except Exception:
             self.available_models = []
+            self._update_status_indicator()
             return
 
         models = []
@@ -133,6 +157,8 @@ class SettingsTab(ttk.Frame):
                 unique_models.append(m)
 
         self.available_models = sorted(unique_models)
+        self.ollama_online = True
+        self._update_status_indicator()
 
     def _build_ui(self):
         main_frame = ttk.LabelFrame(self, text="Ollama and model settings")
@@ -153,6 +179,11 @@ class SettingsTab(ttk.Frame):
             command=self._show_ollama_help,
         )
         ollama_help_btn.grid(row=0, column=2, sticky="e", padx=4, pady=4)
+
+        # Status indicator (green/red icon)
+        self.status_var = tk.StringVar(value="● status unknown")
+        self.status_label = ttk.Label(main_frame, textvariable=self.status_var)
+        self.status_label.grid(row=0, column=3, sticky="w", padx=4, pady=4)
 
         # Embedding model dropdown
         ttk.Label(main_frame, text="Embedding model:").grid(
@@ -208,6 +239,14 @@ class SettingsTab(ttk.Frame):
         )
         refresh_btn.grid(row=3, column=1, sticky="w", padx=4, pady=(4, 8))
 
+        # Download model button (opens dropdown dialog)
+        download_btn = ttk.Button(
+            main_frame,
+            text="Download model…",
+            command=self._download_model,
+        )
+        download_btn.grid(row=3, column=2, sticky="w", padx=4, pady=(4, 8))
+
         main_frame.columnconfigure(1, weight=1)
 
         btn_frame = ttk.Frame(self)
@@ -221,6 +260,22 @@ class SettingsTab(ttk.Frame):
             text="These settings affect new queries and indexing runs.",
         )
         info_label.pack(side="right")
+
+    # Status indicator
+
+    def _update_status_indicator(self):
+        """
+        Update the green/red status icon and text based on self.ollama_online.
+        """
+        if self.status_var is None or self.status_label is None:
+            return
+
+        if self.ollama_online:
+            self.status_var.set("● Ollama running")
+            self.status_label.configure(foreground="green")
+        else:
+            self.status_var.set("● Ollama not reachable")
+            self.status_label.configure(foreground="red")
 
     # Help popups
 
@@ -308,10 +363,142 @@ class SettingsTab(ttk.Frame):
 
         messagebox.showinfo("Chat model", text)
 
+    # Download model (dropdown dialog)
+
+    def _download_model(self):
+        """
+        Open a small dialog with a dropdown of suggested models and an optional
+        editable field so the user can pick (or type) a model to pull.
+        """
+        base_url = self.ollama_url_var.get().strip() or config.OLLAMA_URL
+        if not base_url:
+            messagebox.showerror("Download model", "Ollama URL is empty.")
+            return
+
+        # Small modal dialog
+        dialog = tk.Toplevel(self)
+        dialog.title("Download model")
+        dialog.transient(self.winfo_toplevel())
+        dialog.grab_set()
+
+        ttk.Label(
+            dialog,
+            text="Choose a model to download (or type a custom name):",
+        ).grid(row=0, column=0, columnspan=2, sticky="w", padx=8, pady=(8, 4))
+
+        model_var = tk.StringVar(value=SUGGESTED_PULL_MODELS[0] if SUGGESTED_PULL_MODELS else "")
+        combo = ttk.Combobox(
+            dialog,
+            textvariable=model_var,
+            values=SUGGESTED_PULL_MODELS,
+            width=40,
+            state="normal",  # allow typing custom
+        )
+        combo.grid(row=1, column=0, columnspan=2, sticky="we", padx=8, pady=4)
+        combo.focus_set()
+
+        result = {"name": None}
+
+        def on_ok():
+            name = model_var.get().strip()
+            if not name:
+                messagebox.showerror("Download model", "Please choose or type a model name.")
+                return
+            result["name"] = name
+            dialog.destroy()
+
+        def on_cancel():
+            dialog.destroy()
+
+        ok_btn = ttk.Button(dialog, text="Download", command=on_ok)
+        ok_btn.grid(row=2, column=0, sticky="e", padx=8, pady=8)
+
+        cancel_btn = ttk.Button(dialog, text="Cancel", command=on_cancel)
+        cancel_btn.grid(row=2, column=1, sticky="w", padx=8, pady=8)
+
+        dialog.columnconfigure(0, weight=1)
+        dialog.columnconfigure(1, weight=1)
+
+        self.wait_window(dialog)
+
+        model_name = result["name"]
+        if not model_name:
+            return
+
+        url = f"{base_url.rstrip('/')}/api/pull"
+        try:
+            resp = requests.post(url, json={"name": model_name}, stream=True)
+        except Exception as e:
+            messagebox.showerror(
+                "Download model",
+                f"Could not contact Ollama at {base_url}.\n\nError: {e}",
+            )
+            self.ollama_online = False
+            self._update_status_indicator()
+            return
+
+        if not resp.ok:
+            text = resp.text[:400] if resp.text else f"Status {resp.status_code}"
+            messagebox.showerror(
+                "Download model",
+                f"Ollama returned an error while pulling model:\n\n{text}",
+            )
+            self.ollama_online = False
+            self._update_status_indicator()
+            return
+
+        # Consume the streaming progress, watch for error or success status
+        error_msg = None
+        success = False
+
+        try:
+            for line in resp.iter_lines():
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line.decode("utf8"))
+                except Exception:
+                    continue
+
+                if "error" in obj:
+                    error_msg = obj["error"]
+                    break
+                status = obj.get("status") or obj.get("message")
+                if isinstance(status, str) and "success" in status.lower():
+                    success = True
+        except Exception:
+            # If streaming fails partway through, just fall back to "check Ollama"
+            pass
+
+        if error_msg:
+            messagebox.showerror(
+                "Download model",
+                f"Model download failed:\n\n{error_msg}",
+            )
+        elif success:
+            messagebox.showinfo(
+                "Download model",
+                f"Model '{model_name}' downloaded successfully (or is ready to use).",
+            )
+        else:
+            messagebox.showinfo(
+                "Download model",
+                f"Model '{model_name}' pull ended.\n"
+                "If something looks off, check the Ollama UI or logs.",
+            )
+
+        # After downloading, refresh model list and status
+        self._refresh_models()
+
     def _refresh_models(self):
         """
         Reload models from Ollama and update the dropdown lists.
         """
+        # Use current URL from the field
+        new_url = self.ollama_url_var.get().strip()
+        if new_url:
+            config.OLLAMA_URL = new_url
+
         self._load_models_from_ollama()
 
         if self.embed_combo is not None:
@@ -327,13 +514,14 @@ class SettingsTab(ttk.Frame):
         else:
             messagebox.showwarning(
                 "Models not found",
-                "Could not load any models from Ollama. Check the URL and that Ollama is running.",
+                "Could not load any models from Ollama. "
+                "Check the URL and that Ollama is running.",
             )
 
     # Apply
 
     def apply_settings(self):
-        # Update config globals
+        # Update config globals from fields
         new_url = self.ollama_url_var.get().strip()
         if new_url:
             config.OLLAMA_URL = new_url
@@ -346,7 +534,7 @@ class SettingsTab(ttk.Frame):
         if new_chat:
             config.CHAT_MODEL = new_chat
 
-        # Refresh models in case the URL changed
+        # Refresh models / status in case URL changed
         self._refresh_models()
 
         messagebox.showinfo(
