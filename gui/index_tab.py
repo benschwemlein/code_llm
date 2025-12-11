@@ -7,11 +7,126 @@ from tkinter.scrolledtext import ScrolledText
 from config import DEFAULT_INDEX_DIR, DEFAULT_REPO_ROOT, DEFAULT_COLLECTION_NAME
 from indexing.indexer import (
     index_repo,
-    INDEX_EXTS,
     CHARS_PER_CHUNK,
     CHUNK_OVERLAP,
     MAX_FILE_BYTES,
 )
+
+COMMON_FILETYPE_GROUPS = {
+    "Microsoft / .NET": [
+        ".cs", ".csx", ".vb",
+        ".fs", ".fsi", ".fsx",
+        ".xaml",
+        ".cshtml",
+        ".config",
+        ".resx",
+        ".sln",
+        ".csproj", ".vbproj", ".fsproj",
+    ],
+    "PHP ecosystem": [
+        ".php", ".phtml", ".twig", ".tpl",
+    ],
+    "Java / JVM": [
+        ".java",
+        ".kt", ".kts",
+        ".groovy", ".gvy",
+        ".scala", ".sc",
+        ".gradle",
+        ".xml",
+        ".properties",
+    ],
+    "JavaScript / Web": [
+        ".js", ".jsx",
+        ".ts", ".tsx",
+        ".mjs", ".cjs",
+        ".vue", ".svelte",
+        ".astro",
+        ".html",
+        ".css", ".scss", ".less",
+        ".json", ".json5",
+    ],
+    "Python / Data": [
+        ".py", ".pyi",
+        ".ipynb",
+        ".toml",
+        ".ini",
+        ".cfg",
+        ".env",
+    ],
+    "Mobile / UI": [
+        ".xml",
+        ".plist",
+        ".storyboard",
+        ".xib",
+    ],
+    "C / C++ / Embedded": [
+        ".c", ".h",
+        ".cpp", ".hpp",
+        ".cc", ".cxx", ".hh",
+        ".ino",
+        ".mk",
+    ],
+    "Rust / Go / Ruby / Swift / ObjC": [
+        ".rs",
+        ".go",
+        ".rb",
+        ".swift",
+        ".m", ".mm",
+    ],
+    "Cloud / IaC": [
+        ".tf",
+        ".tfvars",
+        ".yaml",
+        ".yml",
+        ".json",
+    ],
+    "SQL / Query": [
+        ".sql",
+        ".psql",
+        ".hql",
+        ".cql",
+    ],
+    "Shell / Scripts": [
+        ".sh", ".bash", ".zsh",
+        ".ksh",
+        ".fish",
+        ".bat", ".cmd",
+        ".ps1", ".psm1",
+    ],
+    "Documentation": [
+        ".md", ".rst", ".adoc",
+        ".txt",
+        ".csv",
+    ],
+}
+
+
+class CollapsibleFrame(ttk.Frame):
+    def __init__(self, parent, text="", *args, **kwargs):
+        super().__init__(parent, *args, **kwargs)
+
+        self._shown = tk.BooleanVar(value=True)
+
+        header = ttk.Frame(self)
+        header.pack(fill="x")
+
+        self._btn = ttk.Checkbutton(
+            header,
+            text=text,
+            variable=self._shown,
+            command=self._toggle,
+            style="Toolbutton",
+        )
+        self._btn.pack(side="left", padx=2, pady=2)
+
+        self.body = ttk.Frame(self)
+        self.body.pack(fill="both", expand=True)
+
+    def _toggle(self):
+        if self._shown.get():
+            self.body.pack(fill="both", expand=True)
+        else:
+            self.body.forget()
 
 
 class IndexTab(ttk.Frame):
@@ -23,113 +138,96 @@ class IndexTab(ttk.Frame):
         self._build_ui()
 
     def _build_ui(self):
-        # Parameters frame
         params_frame = ttk.LabelFrame(self, text="Index parameters")
         params_frame.pack(fill="x", padx=8, pady=8)
 
         # Repo root
         ttk.Label(params_frame, text="Repo root:").grid(row=0, column=0, sticky="w")
         self.repo_root_var = tk.StringVar(value=DEFAULT_REPO_ROOT)
-        repo_entry = ttk.Entry(params_frame, textvariable=self.repo_root_var, width=60)
-        repo_entry.grid(row=0, column=1, sticky="we", padx=4)
-        browse_repo_btn = ttk.Button(params_frame, text="Browse", command=self.browse_repo_root)
-        browse_repo_btn.grid(row=0, column=2, padx=4)
-        repo_help_btn = ttk.Button(
+        ttk.Entry(params_frame, textvariable=self.repo_root_var, width=60).grid(
+            row=0, column=1, sticky="we", padx=4
+        )
+        ttk.Button(params_frame, text="Browse", command=self.browse_repo_root).grid(row=0, column=2, padx=4)
+        ttk.Button(
             params_frame,
             text="?",
             width=2,
             command=lambda: self._show_help(
                 "Repo root",
                 (
-                    "This is the top folder of the source tree you want to index.\n\n"
-                    "The indexer will walk this directory and all of its child folders and read files "
-                    "that match the selected file types.\n\n"
-                    "Example:\n"
-                    "  C:/dev/myproject\n"
-                    "  /home/user/code/myproject\n\n"
-                    "If you point this at a very large monorepo the first run may take a while."
+                    "Top folder of the source tree you want to index.\n\n"
+                    "The indexer walks this directory and all child folders and reads files "
+                    "that match the selected file types."
                 ),
             ),
-        )
-        repo_help_btn.grid(row=0, column=3, padx=2)
+        ).grid(row=0, column=3)
 
         # Index directory
         ttk.Label(params_frame, text="Index directory:").grid(row=1, column=0, sticky="w")
         self.index_dir_var = tk.StringVar(value=DEFAULT_INDEX_DIR)
-        index_entry = ttk.Entry(params_frame, textvariable=self.index_dir_var, width=60)
-        index_entry.grid(row=1, column=1, sticky="we", padx=4)
-        browse_index_btn = ttk.Button(params_frame, text="Browse", command=self.browse_index_dir)
-        browse_index_btn.grid(row=1, column=2, padx=4)
-        index_help_btn = ttk.Button(
+        ttk.Entry(params_frame, textvariable=self.index_dir_var, width=60).grid(
+            row=1, column=1, sticky="we", padx=4
+        )
+        ttk.Button(params_frame, text="Browse", command=self.browse_index_dir).grid(row=1, column=2, padx=4)
+        ttk.Button(
             params_frame,
             text="?",
             width=2,
             command=lambda: self._show_help(
                 "Index directory",
                 (
-                    "Folder where the Chroma database files are stored.\n\n"
-                    "Everything that the indexer computes ends up here. You can keep separate indexes "
-                    "for different projects by using different index folders or different collection names.\n\n"
-                    "You should choose a location that is local and writable. If you delete this folder "
-                    "you lose the index but your source code is unchanged."
+                    "Base folder where index data is stored.\n\n"
+                    "A subfolder named with the collection name will be created here for this index."
                 ),
             ),
-        )
-        index_help_btn.grid(row=1, column=3, padx=2)
+        ).grid(row=1, column=3)
 
         # Collection name
         ttk.Label(params_frame, text="Collection name:").grid(row=2, column=0, sticky="w")
         self.collection_var = tk.StringVar(value=DEFAULT_COLLECTION_NAME)
-        collection_entry = ttk.Entry(params_frame, textvariable=self.collection_var, width=40)
-        collection_entry.grid(row=2, column=1, sticky="w", padx=4)
-        collection_help_btn = ttk.Button(
+        ttk.Entry(params_frame, textvariable=self.collection_var, width=40).grid(
+            row=2, column=1, sticky="w", padx=4
+        )
+        ttk.Button(
             params_frame,
             text="?",
             width=2,
             command=lambda: self._show_help(
                 "Collection name",
                 (
-                    "Name of the collection inside the Chroma index directory.\n\n"
-                    "You can reuse the same index directory for many repositories by giving each "
-                    "one a different collection name. Each run of the indexer will drop and recreate "
-                    "the collection with the given name.\n\n"
-                    "If you change this value you will create a separate logical index."
+                    "Logical name for this index.\n\n"
+                    "Used as the Chroma collection name and as the subfolder name under the index directory."
                 ),
             ),
-        )
-        collection_help_btn.grid(row=2, column=3, padx=2)
+        ).grid(row=2, column=3)
 
         # Chars per chunk
         ttk.Label(params_frame, text="Chars per chunk:").grid(row=3, column=0, sticky="w")
         self.chars_per_chunk_var = tk.StringVar(value=str(CHARS_PER_CHUNK))
-        chars_entry = ttk.Entry(params_frame, textvariable=self.chars_per_chunk_var, width=12)
-        chars_entry.grid(row=3, column=1, sticky="w", padx=4)
-        chars_help_btn = ttk.Button(
+        ttk.Entry(params_frame, textvariable=self.chars_per_chunk_var, width=10).grid(
+            row=3, column=1, sticky="w", padx=4
+        )
+        ttk.Button(
             params_frame,
             text="?",
             width=2,
             command=lambda: self._show_help(
                 "Chars per chunk",
                 (
-                    "Target size of each text chunk that is embedded.\n\n"
-                    "Larger chunks capture more context from a file but can be less precise when answering "
-                    "small focused questions. Smaller chunks give more precise snippets but may lose some "
-                    "surrounding context.\n\n"
-                    "Typical values are between 800 and 2000 characters. The default is chosen as a balance "
-                    "between context and precision.\n\n"
-                    "If you increase this, the number of chunks and embeddings goes down but each chunk becomes "
-                    "larger. If you decrease this, the index will contain more smaller chunks."
+                    "Target maximum characters in each text chunk sent to the embedding model.\n\n"
+                    "Larger values capture more context in one chunk. Smaller values give tighter snippets "
+                    "but may lose surrounding context. Typical range is about 800 to 2000."
                 ),
             ),
-        )
-        chars_help_btn.grid(row=3, column=3, padx=2)
+        ).grid(row=3, column=3)
 
         # Chunk overlap
         ttk.Label(params_frame, text="Chunk overlap:").grid(row=4, column=0, sticky="w")
         self.chunk_overlap_var = tk.StringVar(value=str(CHUNK_OVERLAP))
-        overlap_entry = ttk.Entry(params_frame, textvariable=self.chunk_overlap_var, width=12)
-        overlap_entry.grid(row=4, column=1, sticky="w", padx=4)
-        overlap_help_btn = ttk.Button(
+        ttk.Entry(params_frame, textvariable=self.chunk_overlap_var, width=10).grid(
+            row=4, column=1, sticky="w", padx=4
+        )
+        ttk.Button(
             params_frame,
             text="?",
             width=2,
@@ -137,103 +235,108 @@ class IndexTab(ttk.Frame):
                 "Chunk overlap",
                 (
                     "Number of characters shared between neighboring chunks.\n\n"
-                    "Overlap helps keep related code or comments together when they sit near a chunk boundary. "
-                    "Without overlap you can lose important context that crosses the artificial break between chunks.\n\n"
-                    "A moderate overlap, for example 150 to 300 characters, is usually a good compromise. "
-                    "Larger overlap slightly increases index size and build time but improves recall across boundaries.\n\n"
-                    "Set this to zero if you want completely independent chunks and a smaller index."
+                    "Overlap helps keep related lines together when they cross an artificial chunk boundary. "
+                    "Moderate overlap improves recall with a small cost in index size."
                 ),
             ),
-        )
-        overlap_help_btn.grid(row=4, column=3, padx=2)
+        ).grid(row=4, column=3)
 
         # Max file size
         ttk.Label(params_frame, text="Max file size (bytes):").grid(row=5, column=0, sticky="w")
         self.max_file_bytes_var = tk.StringVar(value=str(MAX_FILE_BYTES))
-        max_file_entry = ttk.Entry(params_frame, textvariable=self.max_file_bytes_var, width=12)
-        max_file_entry.grid(row=5, column=1, sticky="w", padx=4)
-        max_file_help_btn = ttk.Button(
+        ttk.Entry(params_frame, textvariable=self.max_file_bytes_var, width=12).grid(
+            row=5, column=1, sticky="w", padx=4
+        )
+        ttk.Button(
             params_frame,
             text="?",
             width=2,
             command=lambda: self._show_help(
                 "Max file size",
                 (
-                    "Files larger than this many bytes are skipped and not indexed.\n\n"
-                    "This protects the indexer from accidentally pulling in very large generated files, "
-                    "logs, or vendor bundles that would slow everything down and add noise to search.\n\n"
-                    "If you know your project uses some large but important files you can raise this limit. "
-                    "If you are indexing a very large repository and only care about typical source files you "
-                    "can lower it to avoid giant files."
+                    "Files larger than this many bytes are skipped.\n\n"
+                    "Useful to avoid huge bundles, logs or generated output bloating the index."
                 ),
             ),
-        )
-        max_file_help_btn.grid(row=5, column=3, padx=2)
+        ).grid(row=5, column=3)
 
         params_frame.columnconfigure(1, weight=1)
 
-        # File types frame
-        filetypes_frame = ttk.LabelFrame(self, text="File types to index")
-        filetypes_frame.pack(fill="x", padx=8, pady=4)
+        # Collapsible file types section
+        filetypes_collapsible = CollapsibleFrame(self, text="File types to index")
+        filetypes_collapsible.pack(fill="x", padx=8, pady=4)
 
-        btns_row = 0
-        select_all_btn = ttk.Button(filetypes_frame, text="Select all", command=self._select_all_filetypes)
-        select_all_btn.grid(row=btns_row, column=0, sticky="w", padx=4, pady=(4, 2))
+        filetypes_frame = filetypes_collapsible.body
 
-        clear_all_btn = ttk.Button(filetypes_frame, text="Clear all", command=self._clear_all_filetypes)
-        clear_all_btn.grid(row=btns_row, column=1, sticky="w", padx=4, pady=(4, 2))
+        toolbar = ttk.Frame(filetypes_frame)
+        toolbar.pack(fill="x", padx=4, pady=4)
 
-        filetypes_help_btn = ttk.Button(
-            filetypes_frame,
+        ttk.Button(toolbar, text="Select all", command=self._select_all_filetypes).pack(side="left", padx=4)
+        ttk.Button(toolbar, text="Clear all", command=self._clear_all_filetypes).pack(side="left", padx=4)
+        ttk.Button(
+            toolbar,
             text="?",
             width=2,
             command=lambda: self._show_help(
                 "File types",
                 (
-                    "Choose which file extensions should be included in the index.\n\n"
-                    "Only files whose extension is checked here will be read and chunked. This lets you focus "
-                    "the index on real source and documentation and avoid noisy files such as build artifacts.\n\n"
-                    "Typical use:\n"
-                    "  For a web application, keep languages like java, ts, js, tsx, jsx, html, css, scss.\n"
-                    "  For a Python project, you might only keep py, md, txt, json, yaml.\n\n"
-                    "You can use Select all to index every supported type or Clear all and then pick a small subset "
-                    "if you want to experiment with a faster and smaller index."
+                    "Choose which file extensions should be indexed.\n\n"
+                    "Only files with these extensions are read and chunked. This keeps the index focused on "
+                    "actual source, configuration and documentation files."
                 ),
             ),
-        )
-        filetypes_help_btn.grid(row=btns_row, column=2, sticky="w", padx=4, pady=(4, 2))
+        ).pack(side="left", padx=4)
 
-        # Checkboxes for each extension
-        exts = sorted(INDEX_EXTS)
-        cols_per_row = 6
-        start_row = 1
-        for i, ext in enumerate(exts):
-            row = start_row + i // cols_per_row
-            col = (i % cols_per_row)
-            var = tk.BooleanVar(value=True)
-            self._ext_vars[ext] = var
-            chk = ttk.Checkbutton(filetypes_frame, text=ext, variable=var)
-            chk.grid(row=row, column=col, sticky="w", padx=4, pady=2)
+        groups_holder = ttk.Frame(filetypes_frame)
+        groups_holder.pack(fill="x", padx=4, pady=(2, 4))
 
-        # Button frame
-        btn_frame = ttk.Frame(self)
-        btn_frame.pack(fill="x", padx=8, pady=4)
+        seen: set[str] = set()
+        group_names = list(COMMON_FILETYPE_GROUPS.keys())
+        cols_of_groups = 3
 
-        self.run_btn = ttk.Button(btn_frame, text="Run index", command=self.run_index)
+        for i, group in enumerate(group_names):
+            exts = COMMON_FILETYPE_GROUPS[group]
+            row = i // cols_of_groups
+            col = i % cols_of_groups
+
+            group_frame = ttk.LabelFrame(groups_holder, text=group)
+            group_frame.grid(row=row, column=col, sticky="nwe", padx=4, pady=2)
+
+            groups_holder.columnconfigure(col, weight=1)
+
+            inner_cols = 4
+            idx = 0
+            for ext in sorted(exts):
+                if ext in seen:
+                    continue
+                seen.add(ext)
+
+                r = idx // inner_cols
+                c = idx % inner_cols
+                idx += 1
+
+                var = tk.BooleanVar(value=True)
+                self._ext_vars[ext] = var
+                chk = ttk.Checkbutton(group_frame, text=ext, variable=var)
+                chk.grid(row=r, column=c, sticky="w", padx=2, pady=1)
+
+        bottom_frame = ttk.Frame(self)
+        bottom_frame.pack(fill="x", padx=8, pady=8)
+
+        self.run_btn = ttk.Button(bottom_frame, text="Index", command=self.run_index)
         self.run_btn.pack(side="left")
 
-        self.status_label = ttk.Label(btn_frame, text="")
+        self.status_label = ttk.Label(bottom_frame, text="")
         self.status_label.pack(side="right")
 
-        # Log frame
         log_frame = ttk.LabelFrame(self, text="Index log")
         log_frame.pack(fill="both", expand=True, padx=8, pady=4)
 
         self.log_text = ScrolledText(log_frame, wrap="word", height=12)
         self.log_text.pack(fill="both", expand=True, padx=4, pady=4)
 
-    def _show_help(self, title: str, msg: str):
-        messagebox.showinfo(title, msg)
+    def _show_help(self, title: str, text: str):
+        messagebox.showinfo(title, text)
 
     def browse_repo_root(self):
         path = filedialog.askdirectory(initialdir=self.repo_root_var.get() or os.path.expanduser("~"))
@@ -253,12 +356,12 @@ class IndexTab(ttk.Frame):
         self.log_text.see("end")
 
     def _select_all_filetypes(self):
-        for var in self._ext_vars.values():
-            var.set(True)
+        for v in self._ext_vars.values():
+            v.set(True)
 
     def _clear_all_filetypes(self):
-        for var in self._ext_vars.values():
-            var.set(False)
+        for v in self._ext_vars.values():
+            v.set(False)
 
     def run_index(self):
         if self._current_thread and self._current_thread.is_alive():
@@ -266,7 +369,7 @@ class IndexTab(ttk.Frame):
             return
 
         repo_root = self.repo_root_var.get().strip()
-        index_base_dir = self.index_dir_var.get().strip()
+        index_base = self.index_dir_var.get().strip()
         collection_name = self.collection_var.get().strip()
 
         if not repo_root:
@@ -275,39 +378,33 @@ class IndexTab(ttk.Frame):
         if not os.path.isdir(repo_root):
             messagebox.showerror("Error", f"Repo root does not exist:\n{repo_root}")
             return
-        if not index_base_dir:
+        if not index_base:
             messagebox.showerror("Error", "Index directory is required.")
             return
-        if not collection_name:
-            messagebox.showerror("Error", "Collection name is required.")
-            return
 
-        # Actual folder where this collection will live, named from the GUI
-        index_dir = os.path.join(index_base_dir, collection_name)
+        index_dir = os.path.join(index_base, collection_name)
 
-        # Parse numeric parameters
         try:
-            chars_per_chunk = int(self.chars_per_chunk_var.get())
-            chunk_overlap = int(self.chunk_overlap_var.get())
-            max_file_bytes = int(self.max_file_bytes_var.get())
+            chars = int(self.chars_per_chunk_var.get())
+            overlap = int(self.chunk_overlap_var.get())
+            max_bytes = int(self.max_file_bytes_var.get())
         except ValueError:
-            messagebox.showerror("Error", "Chars per chunk, chunk overlap, and max file size must be integers.")
+            messagebox.showerror("Error", "Numeric fields must contain integers.")
             return
 
-        if chars_per_chunk <= 0:
+        if chars <= 0:
             messagebox.showerror("Error", "Chars per chunk must be greater than zero.")
             return
-        if chunk_overlap < 0:
+        if overlap < 0:
             messagebox.showerror("Error", "Chunk overlap cannot be negative.")
             return
-        if max_file_bytes <= 0:
+        if max_bytes <= 0:
             messagebox.showerror("Error", "Max file size must be greater than zero.")
             return
 
-        # Collect selected file extensions
         selected_exts = {ext for ext, var in self._ext_vars.items() if var.get()}
         if not selected_exts:
-            messagebox.showerror("Error", "Select at least one file type to index.")
+            messagebox.showerror("Error", "Choose at least one file type.")
             return
 
         self.log_text.delete("1.0", "end")
@@ -318,12 +415,12 @@ class IndexTab(ttk.Frame):
             try:
                 index_repo(
                     repo_root=repo_root,
-                    index_dir=index_dir,          # now includes the name from the GUI
+                    index_dir=index_dir,
                     collection_name=collection_name,
                     index_exts=selected_exts,
-                    max_file_bytes=max_file_bytes,
-                    chars_per_chunk=chars_per_chunk,
-                    chunk_overlap=chunk_overlap,
+                    max_file_bytes=max_bytes,
+                    chars_per_chunk=chars,
+                    chunk_overlap=overlap,
                     log=self._log,
                 )
                 self._done(True)
@@ -334,8 +431,8 @@ class IndexTab(ttk.Frame):
         self._current_thread = threading.Thread(target=worker, daemon=True)
         self._current_thread.start()
 
-    def _done(self, success):
+    def _done(self, ok: bool):
         def finish():
             self.run_btn.config(state="normal")
-            self.status_label.config(text="Done" if success else "Failed")
+            self.status_label.config(text="Done" if ok else "Failed")
         self.after(0, finish)
