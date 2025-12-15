@@ -15,11 +15,9 @@ class CodeSearchApp(tk.Tk):
     def __init__(self):
         super().__init__()
 
-        # Window basics
         self.title("Local RAG LLM")
         self.minsize(1200, 900)
 
-        # Load settings (merged with defaults)
         defaults = build_default_settings()
         self.settings = SettingsManager(self, defaults)
 
@@ -35,7 +33,6 @@ class CodeSearchApp(tk.Tk):
         def get_chat_prompt() -> str:
             return prompts_tab.chat_prompt_text.get("1.0", "end-1c")
 
-        # Query tab
         query_tab = QueryTab(
             notebook,
             settings_mgr=self.settings,
@@ -52,17 +49,10 @@ class CodeSearchApp(tk.Tk):
         notebook.add(prompts_tab, text="Prompts")
         notebook.add(settings_tab, text="Settings")
 
-        # Restore last active tab
-        desired = (self.settings.data.get("ui", {}) or {}).get("last_active_tab", "Query")
-        tab_by_name = {
-            "Query": query_tab,
-            "Index": index_tab,
-            "Prompts": prompts_tab,
-            "Settings": settings_tab,
-        }
-        notebook.select(tab_by_name.get(desired, query_tab))
+        # ALWAYS start on Query tab
+        notebook.select(query_tab)
 
-        # Persist last active tab
+        # Still persist last active tab (harmless, just not used on startup)
         def on_tab_changed(event=None):
             try:
                 current_id = notebook.select()
