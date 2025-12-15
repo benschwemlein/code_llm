@@ -9,64 +9,123 @@ import config
 # Simple curated metadata for common models.
 # We match by base name before the ":" tag (e.g. "llama3.1:8b" -> "llama3.1").
 MODEL_INFO = {
+    # Embeddings
     "nomic-embed-text": (
         "Nomic AI",
-        "Text embedding model designed for high quality semantic search and retrieval.",
+        "High quality text embedding model designed for semantic search and retrieval.",
     ),
     "all-minilm": (
         "Microsoft / Hugging Face",
-        "Small and fast general purpose embedding model based on MiniLM.",
+        "Small, fast general-purpose embedding model based on MiniLM.",
     ),
+    "mxbai-embed-large": (
+        "MixedBread AI",
+        "Large, high quality embedding model suitable for retrieval augmented generation.",
+    ),
+
+    # Llama family
     "llama3.1": (
         "Meta",
-        "Llama 3.1 generation model, good general purpose chat and coding assistant.",
+        "Llama 3.1 family model. Strong general-purpose and coding performance.",
     ),
     "llama3": (
         "Meta",
-        "Llama 3 series model for general chat and coding tasks.",
+        "Llama 3 family model for chat, reasoning, and code understanding.",
     ),
     "llama2": (
         "Meta",
-        "Earlier Llama 2 series open model for chat and reasoning.",
+        "Earlier Llama 2 family model for chat and reasoning tasks.",
     ),
+    "codellama": (
+        "Meta",
+        "Code-specialized Llama model trained for programming tasks and code completion.",
+    ),
+
+    # DeepSeek
+    "deepseek-coder": (
+        "DeepSeek AI",
+        "Code-focused large language model trained on large-scale programming datasets.",
+    ),
+
+    # Qwen family
     "qwen2.5": (
         "Alibaba Cloud",
-        "Qwen 2.5 family model, strong at multilingual tasks and reasoning.",
+        "Qwen 2.5 family general-purpose model with strong reasoning and multilingual support.",
+    ),
+    "qwen2.5-coder": (
+        "Alibaba Cloud",
+        "Code-specialized Qwen 2.5 model optimized for programming and code reasoning.",
     ),
     "qwen2": (
         "Alibaba Cloud",
-        "Qwen 2 series general chat and coding model.",
+        "Earlier Qwen family general-purpose chat and coding model.",
     ),
+
+    # Mistral family
     "mistral": (
         "Mistral AI",
-        "Mistral family model, efficient general purpose LLM.",
+        "Efficient general-purpose LLM suitable for chat and code tasks.",
     ),
     "mixtral": (
         "Mistral AI",
-        "Mixture of experts model that trades size for higher quality.",
+        "Mixture-of-experts model that provides higher quality reasoning at scale.",
     ),
+
+    # Google / Gemma
+    "codegemma": (
+        "Google",
+        "Code-specialized Gemma model optimized for programming tasks.",
+    ),
+    "gemma": (
+        "Google",
+        "Lightweight open model for chat and reasoning tasks.",
+    ),
+
+    # StarCoder
+    "starcoder2": (
+        "BigCode",
+        "Second generation StarCoder model designed specifically for source code understanding.",
+    ),
+
+    # Microsoft Phi
     "phi3": (
         "Microsoft",
-        "Phi 3 series small model tuned for strong reasoning at small sizes.",
+        "Small but capable reasoning model with good performance for its size.",
     ),
     "phi-3": (
         "Microsoft",
-        "Phi 3 series small model tuned for strong reasoning at small sizes.",
+        "Alternate naming for Phi 3 family models.",
     ),
 }
+
 
 # Suggested models to show in the download dropdown
 SUGGESTED_PULL_MODELS = [
     "nomic-embed-text",
     "all-minilm",
+
     "llama3.1:8b",
     "llama3.1:70b",
-    "llama3:8b",
+
     "qwen2.5:7b",
+    "qwen2.5-coder:7b",
+    "qwen2.5-coder:14b",
+
+    "deepseek-coder:6.7b",
+    "deepseek-coder:33b",
+
+    "codellama:7b",
+    "codellama:13b",
+    "codellama:34b",
+
+    "codegemma:7b",
+    "starcoder2:7b",
+
     "mistral:7b",
     "mixtral:8x7b",
     "phi3:3.8b",
 ]
+
 
 
 def describe_model(name: str):
