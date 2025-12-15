@@ -102,10 +102,10 @@ COMMON_FILETYPE_GROUPS = {
 
 
 class CollapsibleFrame(ttk.Frame):
-    def __init__(self, parent, text="", *args, **kwargs):
+    def __init__(self, parent, text="", shown=True, *args, **kwargs):
         super().__init__(parent, *args, **kwargs)
 
-        self._shown = tk.BooleanVar(value=True)
+        self._shown = tk.BooleanVar(value=bool(shown))
 
         header = ttk.Frame(self)
         header.pack(fill="x")
@@ -120,7 +120,9 @@ class CollapsibleFrame(ttk.Frame):
         self._btn.pack(side="left", padx=2, pady=2)
 
         self.body = ttk.Frame(self)
-        self.body.pack(fill="both", expand=True)
+
+        if self._shown.get():
+            self.body.pack(fill="both", expand=True)
 
     def _toggle(self):
         if self._shown.get():
@@ -291,8 +293,8 @@ class IndexTab(ttk.Frame):
 
         params_frame.columnconfigure(1, weight=1)
 
-        # Collapsible file types section
-        filetypes_collapsible = CollapsibleFrame(self, text="File types to index")
+        # Collapsible file types section (collapsed by default)
+        filetypes_collapsible = CollapsibleFrame(self, text="File types to index", shown=False)
         filetypes_collapsible.pack(fill="x", padx=8, pady=4)
 
         filetypes_frame = filetypes_collapsible.body
