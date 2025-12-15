@@ -26,9 +26,8 @@ class CodeSearchApp(tk.Tk):
         notebook = ttk.Notebook(self)
         notebook.pack(fill="both", expand=True)
 
-        # Create Prompts tab first so Query tab can always pull prompts immediately
+        # Create Prompts tab first so Query can read prompts
         prompts_tab = PromptsTab(notebook, settings_mgr=self.settings)
-        notebook.add(prompts_tab, text="Prompts")
 
         def get_summarizer_prompt() -> str:
             return prompts_tab.summarizer_text.get("1.0", "end-1c")
@@ -43,17 +42,17 @@ class CodeSearchApp(tk.Tk):
             get_summarizer_prompt=get_summarizer_prompt,
             get_chat_prompt=get_chat_prompt,
         )
-        notebook.add(query_tab, text="Query")
 
-        # Index tab
         index_tab = IndexTab(notebook, settings_mgr=self.settings)
-        notebook.add(index_tab, text="Index")
-
-        # Settings tab
         settings_tab = SettingsTab(notebook, settings_mgr=self.settings)
+
+        # Add tabs in correct visible order
+        notebook.add(query_tab, text="Query")
+        notebook.add(index_tab, text="Index")
+        notebook.add(prompts_tab, text="Prompts")
         notebook.add(settings_tab, text="Settings")
 
-        # Startup tab selection (prefer saved value, fallback to Query)
+        # Restore last active tab
         desired = (self.settings.data.get("ui", {}) or {}).get("last_active_tab", "Query")
         tab_by_name = {
             "Query": query_tab,
@@ -61,12 +60,9 @@ class CodeSearchApp(tk.Tk):
             "Prompts": prompts_tab,
             "Settings": settings_tab,
         }
-        if desired in tab_by_name:
-            notebook.select(tab_by_name[desired])
-        else:
-            notebook.select(query_tab)
+        notebook.select(tab_by_name.get(desired, query_tab))
 
-        # Persist last active tab automatically
+        # Persist last active tab
         def on_tab_changed(event=None):
             try:
                 current_id = notebook.select()
