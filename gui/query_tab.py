@@ -41,29 +41,35 @@ class QueryTab(ttk.Frame):
         get_chat_prompt() -> str
     """
 
-    def __init__(self, parent, get_summarizer_prompt, get_chat_prompt):
+    def __init__(self, parent, settings_mgr, get_summarizer_prompt, get_chat_prompt):
         super().__init__(parent)
 
+        self.settings_mgr = settings_mgr
         self.get_summarizer_prompt = get_summarizer_prompt
         self.get_chat_prompt = get_chat_prompt
 
-        # Stores a list of { "meta": ..., "distance": float, "score": float }
         self.last_results = None
         self.last_index_dir = None
         self.last_repo_root = None
 
         self._current_thread = None
+        self._loading_ui = True
 
         self._build_query_tab()
+        self._wire_autosave()
+
+        self._loading_ui = False
 
     def _build_query_tab(self):
+        s = self.settings_mgr.data.get("query_tab") or {}
+
         # Parameters section
         params_frame = ttk.LabelFrame(self, text="Parameters")
         params_frame.pack(fill="x", padx=8, pady=8)
 
         # Index directory
         ttk.Label(params_frame, text="Index directory:").grid(row=0, column=0, sticky="w")
-        self.index_dir_var = tk.StringVar(value=DEFAULT_INDEX_DIR)
+        self.index_dir_var = tk.StringVar(value=s.get("index_dir", DEFAULT_INDEX_DIR))
         self.index_dir_entry = ttk.Entry(params_frame, textvariable=self.index_dir_var, width=60)
         self.index_dir_entry.grid(row=0, column=1, sticky="we", padx=4)
         browse_idx_btn = ttk.Button(params_frame, text="Browse", command=self.browse_index_dir)
@@ -73,7 +79,7 @@ class QueryTab(ttk.Frame):
 
         # Repo root
         ttk.Label(params_frame, text="Repository root (optional):").grid(row=1, column=0, sticky="w")
-        self.repo_root_var = tk.StringVar(value=DEFAULT_REPO_ROOT)
+        self.repo_root_var = tk.StringVar(value=s.get("repo_root", DEFAULT_REPO_ROOT))
         self.repo_root_entry = ttk.Entry(params_frame, textvariable=self.repo_root_var, width=60)
         self.repo_root_entry.grid(row=1, column=1, sticky="we", padx=4)
         browse_repo_btn = ttk.Button(params_frame, text="Browse", command=self.browse_repo_root)
@@ -83,7 +89,7 @@ class QueryTab(ttk.Frame):
 
         # Number of results (Top K)
         ttk.Label(params_frame, text="Number of results to retrieve:").grid(row=2, column=0, sticky="w")
-        self.top_k_var = tk.StringVar(value=str(DEFAULT_TOP_K))
+        self.top_k_var = tk.StringVar(value=str(s.get("top_k", DEFAULT_TOP_K)))
         self.top_k_entry = ttk.Entry(params_frame, textvariable=self.top_k_var, width=10)
         self.top_k_entry.grid(row=2, column=1, sticky="w", padx=4)
         topk_help_btn = ttk.Button(params_frame, text="?", width=2, command=self._help_top_k)
@@ -91,7 +97,7 @@ class QueryTab(ttk.Frame):
 
         # Max chars before summarizing
         ttk.Label(params_frame, text="Summarize text longer than (characters):").grid(row=3, column=0, sticky="w")
-        self.max_chars_var = tk.StringVar(value=str(DEFAULT_MAX_DIRECT_EMBED_CHARS))
+        self.max_chars_var = tk.StringVar(value=str(s.get("max_chars", DEFAULT_MAX_DIRECT_EMBED_CHARS)))
         self.max_chars_entry = ttk.Entry(params_frame, textvariable=self.max_chars_var, width=10)
         self.max_chars_entry.grid(row=3, column=1, sticky="w", padx=4)
         maxchars_help_btn = ttk.Button(params_frame, text="?", width=2, command=self._help_max_chars)
@@ -105,6 +111,12 @@ class QueryTab(ttk.Frame):
 
         self.bug_text = ScrolledText(bug_frame, wrap="word", height=10)
         self.bug_text.pack(fill="both", expand=True, padx=4, pady=4)
+
+        # Load saved bug text if present
+        saved_bug = (s.get("bug_text") or "")
+        if saved_bug.strip():
+            self.bug_text.delete("1.0", "end")
+            self.bug_text.insert("1.0", saved_bug)
 
         btn_frame = ttk.Frame(bug_frame)
         btn_frame.pack(fill="x", padx=4, pady=4)
@@ -144,6 +156,49 @@ class QueryTab(ttk.Frame):
 
         view_files_btn = ttk.Button(output_btn_frame, text="View result files", command=self.show_files_window)
         view_files_btn.pack(side="right")
+
+        # Ensure settings file has all fields for this tab
+        self._save_query_to_settings(save_immediately=False)
+
+    def _wire_autosave(self):
+        def on_any_change(*_):
+            self._save_query_to_settings(save_immediately=False)
+
+        for v in [self.index_dir_var, self.repo_root_var, self.top_k_var, self.max_chars_var]:
+            v.trace_add("write", on_any_change)
+
+        def on_bug_modified(event=None):
+            if self.bug_text.edit_modified():
+                self.bug_text.edit_modified(False)
+                self._save_query_to_settings(save_immediately=False)
+
+        self.bug_text.bind("<<Modified>>", on_bug_modified)
+
+    def _save_query_to_settings(self, save_immediately: bool):
+        if getattr(self, "_loading_ui", False):
+            return
+
+        # store raw strings to avoid breaking on partially typed numbers
+        self.settings_mgr.data["query_tab"] = {
+            "index_dir": self.index_dir_var.get(),
+            "repo_root": self.repo_root_var.get(),
+            "top_k": self._safe_int(self.top_k_var.get(), DEFAULT_TOP_K),
+            "max_chars": self._safe_int(self.max_chars_var.get(), DEFAULT_MAX_DIRECT_EMBED_CHARS),
+            "bug_text": self.bug_text.get("1.0", "end-1c"),
+        }
+
+        if save_immediately:
+            self.settings_mgr.save_now()
+        else:
+            self.settings_mgr.save_soon()
+
+    @staticmethod
+    def _safe_int(raw: str, fallback: int) -> int:
+        try:
+            v = int(str(raw).strip())
+            return v
+        except Exception:
+            return fallback
 
     # Help popups for parameters
 
@@ -212,6 +267,7 @@ class QueryTab(ttk.Frame):
 
         self.bug_text.delete("1.0", "end")
         self.bug_text.insert("1.0", content)
+        self._save_query_to_settings(save_immediately=False)
 
     # Thread safe logging callback used by query_engine.run_query
     def _log(self, text: str):
@@ -249,7 +305,6 @@ class QueryTab(ttk.Frame):
         messagebox.showinfo("Saved", f"Response saved to:\n{path}")
 
     def run_query(self):
-        # Do not start another query while one is running
         if self._current_thread and self._current_thread.is_alive():
             messagebox.showinfo("Info", "A query is already running.")
             return
@@ -273,6 +328,9 @@ class QueryTab(ttk.Frame):
         except ValueError:
             messagebox.showerror("Error", "Summarize threshold must be an integer.")
             return
+
+        # Save settings right before running so they reflect what ran
+        self._save_query_to_settings(save_immediately=False)
 
         # Get prompts from Prompts tab
         sum_template = (self.get_summarizer_prompt() or "").strip()
@@ -332,7 +390,6 @@ class QueryTab(ttk.Frame):
         self.status_label.config(text="Done")
 
         answer = result["answer"]
-        docs = result["docs"]
         metas = result["metas"]
         distances = result["distances"]
         scores = result["scores"]

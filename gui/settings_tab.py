@@ -100,8 +100,10 @@ class SettingsTab(ttk.Frame):
     and query engine on each call.
     """
 
-    def __init__(self, parent):
+    def __init__(self, parent, settings_mgr):
         super().__init__(parent)
+        self.settings_mgr = settings_mgr
+
         self.available_models: list[str] = []
         self.embed_combo = None
         self.chat_combo = None
@@ -110,9 +112,21 @@ class SettingsTab(ttk.Frame):
         self.status_var: tk.StringVar | None = None
         self.status_label: ttk.Label | None = None
 
+        self._loading_ui = True
+
+        # FIX 2
+        # Load the saved Ollama URL into config before we try to fetch models.
+        saved = self.settings_mgr.data.get("settings_tab") or {}
+        saved_url = (saved.get("ollama_url") or "").strip()
+        if saved_url:
+            config.OLLAMA_URL = saved_url
+
         self._load_models_from_ollama()
         self._build_ui()
         self._update_status_indicator()
+        self._wire_autosave()
+
+        self._loading_ui = False
 
     def _load_models_from_ollama(self):
         """
@@ -164,11 +178,13 @@ class SettingsTab(ttk.Frame):
         main_frame = ttk.LabelFrame(self, text="Ollama and model settings")
         main_frame.pack(fill="both", expand=True, padx=8, pady=8)
 
+        s = self.settings_mgr.data.get("settings_tab") or {}
+
         # Ollama URL
         ttk.Label(main_frame, text="Ollama URL:").grid(
             row=0, column=0, sticky="w", padx=4, pady=4
         )
-        self.ollama_url_var = tk.StringVar(value=config.OLLAMA_URL)
+        self.ollama_url_var = tk.StringVar(value=s.get("ollama_url", config.OLLAMA_URL))
         ollama_entry = ttk.Entry(main_frame, textvariable=self.ollama_url_var, width=50)
         ollama_entry.grid(row=0, column=1, sticky="we", padx=4, pady=4)
 
@@ -189,7 +205,7 @@ class SettingsTab(ttk.Frame):
         ttk.Label(main_frame, text="Embedding model:").grid(
             row=1, column=0, sticky="w", padx=4, pady=4
         )
-        self.embed_model_var = tk.StringVar(value=config.EMBED_MODEL)
+        self.embed_model_var = tk.StringVar(value=s.get("embed_model", config.EMBED_MODEL))
 
         self.embed_combo = ttk.Combobox(
             main_frame,
@@ -212,7 +228,7 @@ class SettingsTab(ttk.Frame):
         ttk.Label(main_frame, text="Chat model:").grid(
             row=2, column=0, sticky="w", padx=4, pady=4
         )
-        self.chat_model_var = tk.StringVar(value=config.CHAT_MODEL)
+        self.chat_model_var = tk.StringVar(value=s.get("chat_model", config.CHAT_MODEL))
 
         self.chat_combo = ttk.Combobox(
             main_frame,
@@ -260,6 +276,24 @@ class SettingsTab(ttk.Frame):
             text="These settings affect new queries and indexing runs.",
         )
         info_label.pack(side="right")
+
+    def _wire_autosave(self):
+        def save_core(*_):
+            if getattr(self, "_loading_ui", False):
+                return
+            self.settings_mgr.data["settings_tab"] = {
+                "ollama_url": (self.ollama_url_var.get() or "").strip(),
+                "embed_model": (self.embed_model_var.get() or "").strip(),
+                "chat_model": (self.chat_model_var.get() or "").strip(),
+            }
+            self.settings_mgr.save_soon()
+
+        self.ollama_url_var.trace_add("write", save_core)
+        self.embed_model_var.trace_add("write", save_core)
+        self.chat_model_var.trace_add("write", save_core)
+
+        # Ensure disk has something valid right away
+        save_core()
 
     # Status indicator
 
@@ -467,7 +501,6 @@ class SettingsTab(ttk.Frame):
                 if isinstance(status, str) and "success" in status.lower():
                     success = True
         except Exception:
-            # If streaming fails partway through, just fall back to "check Ollama"
             pass
 
         if error_msg:
@@ -487,14 +520,12 @@ class SettingsTab(ttk.Frame):
                 "If something looks off, check the Ollama UI or logs.",
             )
 
-        # After downloading, refresh model list and status
         self._refresh_models()
 
     def _refresh_models(self):
         """
         Reload models from Ollama and update the dropdown lists.
         """
-        # Use current URL from the field
         new_url = self.ollama_url_var.get().strip()
         if new_url:
             config.OLLAMA_URL = new_url
@@ -533,6 +564,14 @@ class SettingsTab(ttk.Frame):
         new_chat = self.chat_model_var.get().strip()
         if new_chat:
             config.CHAT_MODEL = new_chat
+
+        # Persist to settings file immediately
+        self.settings_mgr.data["settings_tab"] = {
+            "ollama_url": (self.ollama_url_var.get() or "").strip(),
+            "embed_model": (self.embed_model_var.get() or "").strip(),
+            "chat_model": (self.chat_model_var.get() or "").strip(),
+        }
+        self.settings_mgr.save_soon()
 
         # Refresh models / status in case URL changed
         self._refresh_models()

@@ -131,19 +131,27 @@ class CollapsibleFrame(ttk.Frame):
 
 class IndexTab(ttk.Frame):
 
-    def __init__(self, parent):
+    def __init__(self, parent, settings_mgr):
         super().__init__(parent)
+        self.settings_mgr = settings_mgr
+
         self._current_thread = None
         self._ext_vars: dict[str, tk.BooleanVar] = {}
+
+        self._loading_ui = True
         self._build_ui()
+        self._wire_autosave()
+        self._loading_ui = False
 
     def _build_ui(self):
         params_frame = ttk.LabelFrame(self, text="Index parameters")
         params_frame.pack(fill="x", padx=8, pady=8)
 
+        s = self.settings_mgr.data.get("index_tab") or {}
+
         # Repo root
         ttk.Label(params_frame, text="Repo root:").grid(row=0, column=0, sticky="w")
-        self.repo_root_var = tk.StringVar(value=DEFAULT_REPO_ROOT)
+        self.repo_root_var = tk.StringVar(value=s.get("repo_root", DEFAULT_REPO_ROOT))
         ttk.Entry(params_frame, textvariable=self.repo_root_var, width=60).grid(
             row=0, column=1, sticky="we", padx=4
         )
@@ -164,7 +172,7 @@ class IndexTab(ttk.Frame):
 
         # Index directory
         ttk.Label(params_frame, text="Index directory:").grid(row=1, column=0, sticky="w")
-        self.index_dir_var = tk.StringVar(value=DEFAULT_INDEX_DIR)
+        self.index_dir_var = tk.StringVar(value=s.get("index_dir_base", DEFAULT_INDEX_DIR))
         ttk.Entry(params_frame, textvariable=self.index_dir_var, width=60).grid(
             row=1, column=1, sticky="we", padx=4
         )
@@ -184,7 +192,7 @@ class IndexTab(ttk.Frame):
 
         # Collection name
         ttk.Label(params_frame, text="Collection name:").grid(row=2, column=0, sticky="w")
-        self.collection_var = tk.StringVar(value=DEFAULT_COLLECTION_NAME)
+        self.collection_var = tk.StringVar(value=s.get("collection_name", DEFAULT_COLLECTION_NAME))
         ttk.Entry(params_frame, textvariable=self.collection_var, width=40).grid(
             row=2, column=1, sticky="w", padx=4
         )
@@ -203,7 +211,7 @@ class IndexTab(ttk.Frame):
 
         # Chars per chunk
         ttk.Label(params_frame, text="Chars per chunk:").grid(row=3, column=0, sticky="w")
-        self.chars_per_chunk_var = tk.StringVar(value=str(CHARS_PER_CHUNK))
+        self.chars_per_chunk_var = tk.StringVar(value=str(s.get("chars_per_chunk", CHARS_PER_CHUNK)))
         ttk.Entry(params_frame, textvariable=self.chars_per_chunk_var, width=10).grid(
             row=3, column=1, sticky="w", padx=4
         )
@@ -223,7 +231,7 @@ class IndexTab(ttk.Frame):
 
         # Chunk overlap
         ttk.Label(params_frame, text="Chunk overlap:").grid(row=4, column=0, sticky="w")
-        self.chunk_overlap_var = tk.StringVar(value=str(CHUNK_OVERLAP))
+        self.chunk_overlap_var = tk.StringVar(value=str(s.get("chunk_overlap", CHUNK_OVERLAP)))
         ttk.Entry(params_frame, textvariable=self.chunk_overlap_var, width=10).grid(
             row=4, column=1, sticky="w", padx=4
         )
@@ -243,7 +251,7 @@ class IndexTab(ttk.Frame):
 
         # Max file size
         ttk.Label(params_frame, text="Max file size (bytes):").grid(row=5, column=0, sticky="w")
-        self.max_file_bytes_var = tk.StringVar(value=str(MAX_FILE_BYTES))
+        self.max_file_bytes_var = tk.StringVar(value=str(s.get("max_file_bytes", MAX_FILE_BYTES)))
         ttk.Entry(params_frame, textvariable=self.max_file_bytes_var, width=12).grid(
             row=5, column=1, sticky="w", padx=4
         )
@@ -263,7 +271,7 @@ class IndexTab(ttk.Frame):
         # Exclude directories
         ttk.Label(params_frame, text="Exclude directories:").grid(row=6, column=0, sticky="w")
         default_excluded = ".git, .idea, .vscode, node_modules, build, dist, out, target, .gradle, .venv, venv, __pycache__"
-        self.exclude_dirs_var = tk.StringVar(value=default_excluded)
+        self.exclude_dirs_var = tk.StringVar(value=s.get("exclude_dirs_csv", default_excluded))
         ttk.Entry(params_frame, textvariable=self.exclude_dirs_var, width=60).grid(
             row=6, column=1, sticky="we", padx=4
         )
@@ -311,6 +319,8 @@ class IndexTab(ttk.Frame):
         groups_holder = ttk.Frame(filetypes_frame)
         groups_holder.pack(fill="x", padx=4, pady=(2, 4))
 
+        saved_filetypes = (s.get("filetypes") or {})
+
         seen: set[str] = set()
         group_names = list(COMMON_FILETYPE_GROUPS.keys())
         cols_of_groups = 3
@@ -336,7 +346,7 @@ class IndexTab(ttk.Frame):
                 c = idx % inner_cols
                 idx += 1
 
-                var = tk.BooleanVar(value=True)
+                var = tk.BooleanVar(value=bool(saved_filetypes.get(ext, True)))
                 self._ext_vars[ext] = var
                 chk = ttk.Checkbutton(group_frame, text=ext, variable=var)
                 chk.grid(row=r, column=c, sticky="w", padx=2, pady=1)
@@ -355,6 +365,9 @@ class IndexTab(ttk.Frame):
 
         self.log_text = ScrolledText(log_frame, wrap="word", height=12)
         self.log_text.pack(fill="both", expand=True, padx=4, pady=4)
+
+        # Ensure settings file contains all fields for this tab
+        self._save_index_to_settings(save_immediately=False)
 
     def _show_help(self, title: str, text: str):
         messagebox.showinfo(title, text)
@@ -383,6 +396,44 @@ class IndexTab(ttk.Frame):
     def _clear_all_filetypes(self):
         for v in self._ext_vars.values():
             v.set(False)
+
+    def _save_index_to_settings(self, save_immediately: bool):
+        if getattr(self, "_loading_ui", False):
+            return
+
+        self.settings_mgr.data["index_tab"] = {
+            "repo_root": self.repo_root_var.get().strip(),
+            "index_dir_base": self.index_dir_var.get().strip(),
+            "collection_name": self.collection_var.get().strip(),
+            "chars_per_chunk": int(self.chars_per_chunk_var.get() or CHARS_PER_CHUNK),
+            "chunk_overlap": int(self.chunk_overlap_var.get() or CHUNK_OVERLAP),
+            "max_file_bytes": int(self.max_file_bytes_var.get() or MAX_FILE_BYTES),
+            "exclude_dirs_csv": self.exclude_dirs_var.get(),
+            "filetypes": {ext: var.get() for ext, var in self._ext_vars.items()},
+        }
+
+        if save_immediately:
+            self.settings_mgr.save_now()
+        else:
+            self.settings_mgr.save_soon()
+
+    def _wire_autosave(self):
+        def on_any_change(*_):
+            self._save_index_to_settings(save_immediately=False)
+
+        for v in [
+            self.repo_root_var,
+            self.index_dir_var,
+            self.collection_var,
+            self.chars_per_chunk_var,
+            self.chunk_overlap_var,
+            self.max_file_bytes_var,
+            self.exclude_dirs_var,
+        ]:
+            v.trace_add("write", on_any_change)
+
+        for _, b in self._ext_vars.items():
+            b.trace_add("write", on_any_change)
 
     def run_index(self):
         if self._current_thread and self._current_thread.is_alive():
@@ -436,6 +487,9 @@ class IndexTab(ttk.Frame):
         if not selected_exts:
             messagebox.showerror("Error", "Choose at least one file type.")
             return
+
+        # Save settings right before running index so they reflect what ran
+        self._save_index_to_settings(save_immediately=False)
 
         self.log_text.delete("1.0", "end")
         self.run_btn.config(state="disabled")

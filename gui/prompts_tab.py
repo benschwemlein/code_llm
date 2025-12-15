@@ -11,10 +11,12 @@ class PromptsTab(ttk.Frame):
     These are used by the Query tab when building requests to the LLM.
     """
 
-    def __init__(self, parent):
+    def __init__(self, parent, settings_mgr):
         super().__init__(parent)
+        self.settings_mgr = settings_mgr
         self._build_ui()
-        self._set_default_prompts()
+        self._load_from_settings_or_defaults()
+        self._wire_autosave()
 
     def _build_ui(self):
         ctl_frame = ttk.Frame(self)
@@ -34,7 +36,6 @@ class PromptsTab(ttk.Frame):
         )
         save_prompts_btn.pack(side="left", padx=4)
 
-        # Summarizer prompt
         sum_frame = ttk.LabelFrame(self, text="Summarizer prompt template")
         sum_frame.pack(fill="both", expand=True, padx=8, pady=4)
 
@@ -47,7 +48,6 @@ class PromptsTab(ttk.Frame):
         self.summarizer_text = ScrolledText(sum_frame, wrap="word", height=12)
         self.summarizer_text.pack(fill="both", expand=True, padx=4, pady=4)
 
-        # Chat prompt
         chat_frame = ttk.LabelFrame(self, text="Answer prompt template")
         chat_frame.pack(fill="both", expand=True, padx=8, pady=4)
 
@@ -114,6 +114,42 @@ class PromptsTab(ttk.Frame):
         self.chat_prompt_text.delete("1.0", "end")
         self.chat_prompt_text.insert("1.0", chat_default)
 
+    def _load_from_settings_or_defaults(self):
+        self._set_default_prompts()
+
+        s = self.settings_mgr.data.get("prompts_tab") or {}
+        summarizer = (s.get("summarizer_prompt") or "").strip()
+        chat = (s.get("chat_prompt") or "").strip()
+
+        if summarizer:
+            self.summarizer_text.delete("1.0", "end")
+            self.summarizer_text.insert("1.0", s.get("summarizer_prompt", ""))
+
+        if chat:
+            self.chat_prompt_text.delete("1.0", "end")
+            self.chat_prompt_text.insert("1.0", s.get("chat_prompt", ""))
+
+        self._save_prompts_to_settings(save_immediately=False)
+
+    def _save_prompts_to_settings(self, save_immediately: bool):
+        self.settings_mgr.data["prompts_tab"] = {
+            "summarizer_prompt": self.summarizer_text.get("1.0", "end-1c"),
+            "chat_prompt": self.chat_prompt_text.get("1.0", "end-1c"),
+        }
+        if save_immediately:
+            self.settings_mgr.save_now()
+        else:
+            self.settings_mgr.save_soon()
+
+    def _wire_autosave(self):
+        def on_modified(widget):
+            if widget.edit_modified():
+                widget.edit_modified(False)
+                self._save_prompts_to_settings(save_immediately=False)
+
+        self.summarizer_text.bind("<<Modified>>", lambda e: on_modified(self.summarizer_text))
+        self.chat_prompt_text.bind("<<Modified>>", lambda e: on_modified(self.chat_prompt_text))
+
     def load_prompts_from_file(self):
         path = filedialog.askopenfilename(
             title="Load prompts",
@@ -145,6 +181,7 @@ class PromptsTab(ttk.Frame):
         self.chat_prompt_text.delete("1.0", "end")
         self.chat_prompt_text.insert("1.0", chat)
 
+        self._save_prompts_to_settings(save_immediately=False)
         messagebox.showinfo("Loaded", f"Prompts loaded from:\n{path}")
 
     def save_prompts_to_file(self):
@@ -172,4 +209,5 @@ class PromptsTab(ttk.Frame):
             messagebox.showerror("Error", f"Could not save prompts:\n{e}")
             return
 
+        self._save_prompts_to_settings(save_immediately=False)
         messagebox.showinfo("Saved", f"Prompts saved to:\n{path}")
