@@ -2,6 +2,7 @@ import os
 import sys
 import threading
 import subprocess
+import config
 from datetime import datetime
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
@@ -316,6 +317,29 @@ class QueryTab(ttk.Frame):
         index_dir = self.index_dir_var.get().strip()
         repo_root = self.repo_root_var.get().strip()
         bug = self.bug_text.get("1.0", "end-1c")
+
+        # Ensure runtime config matches autosaved Settings tab values
+        st = self.settings_mgr.data.get("settings_tab") or {}
+        url = (st.get("ollama_url") or "").strip()
+        embed = (st.get("embed_model") or "").strip()
+        chat = (st.get("chat_model") or "").strip()
+        if url:
+            config.OLLAMA_URL = url
+        if embed:
+            config.EMBED_MODEL = embed
+        if chat:
+            config.CHAT_MODEL = chat
+
+        # Show runtime model selection in the query output
+        try:
+            import config as _cfg
+            self._append_output("[runtime]")
+            self._append_output(f"Ollama URL: {_cfg.OLLAMA_URL}")
+            self._append_output(f"Embedding model: {_cfg.EMBED_MODEL}")
+            self._append_output(f"Chat model: {_cfg.CHAT_MODEL}")
+            self._append_output("")
+        except Exception:
+            pass
 
         try:
             top_k = int(self.top_k_var.get().strip())

@@ -253,28 +253,45 @@ class SettingsTab(ttk.Frame):
 
         main_frame.columnconfigure(1, weight=1)
 
-        btn_frame = ttk.Frame(self)
-        btn_frame.pack(fill="x", padx=8, pady=(0, 8))
-
-        ttk.Button(btn_frame, text="Apply settings", command=self.apply_settings).pack(side="left")
-        ttk.Label(btn_frame, text="These settings affect new queries and indexing runs.").pack(side="right")
-
     def _wire_autosave(self):
+        last_url = {"value": (self.ollama_url_var.get() or "").strip()}
+
         def save_core(*_):
             if getattr(self, "_loading_ui", False):
                 return
+
+            url = (self.ollama_url_var.get() or "").strip()
+            embed = (self.embed_model_var.get() or "").strip()
+            chat = (self.chat_model_var.get() or "").strip()
+
+            # Persist to settings file
             self.settings_mgr.data["settings_tab"] = {
-                "ollama_url": (self.ollama_url_var.get() or "").strip(),
-                "embed_model": (self.embed_model_var.get() or "").strip(),
-                "chat_model": (self.chat_model_var.get() or "").strip(),
+                "ollama_url": url,
+                "embed_model": embed,
+                "chat_model": chat,
             }
             self.settings_mgr.save_soon()
+
+            # Update runtime globals immediately
+            if url:
+                config.OLLAMA_URL = url
+                self._dl_mgr.set_ollama_url(url)
+            if embed:
+                config.EMBED_MODEL = embed
+            if chat:
+                config.CHAT_MODEL = chat
+
+            # If URL changed, refresh the model list from the new instance
+            if url and url != last_url["value"]:
+                last_url["value"] = url
+                self._refresh_models(silent=True)
 
         self.ollama_url_var.trace_add("write", save_core)
         self.embed_model_var.trace_add("write", save_core)
         self.chat_model_var.trace_add("write", save_core)
 
         save_core()
+
 
     def _update_status_indicator(self):
         if self.status_var is None or self.status_label is None:
