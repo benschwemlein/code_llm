@@ -1,10 +1,14 @@
 """
-Incremental indexer - can update existing indexes without full rebuild.
+Parallel incremental indexer - can update existing indexes without full rebuild.
+Uses thread pool for parallel file processing.
 """
 
 import os
 import hashlib
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
+import queue
 
 def get_file_hash(filepath: str) -> str:
     """Get SHA256 hash of file contents."""
@@ -25,13 +29,15 @@ def index_repo_incremental(
     chunk_overlap: int = 200,
     use_ast_chunking: bool = True,
     skip_problematic_files: bool = True,
-    force_full_reindex: bool = False,  # NEW: Option to force full rebuild
+    force_full_reindex: bool = False,
+    num_workers: int = 4,  # NEW: Number of parallel workers
     log=print,
 ):
     """
-    Index repository incrementally - only processes new or modified files.
+    Index repository incrementally with parallel processing.
     
-    Tracks file hashes in collection metadata to detect changes.
+    Args:
+        num_workers: Number of parallel worker threads (default 4, max 16)
     """
     import chromadb
     from chromadb.config import Settings
@@ -39,11 +45,15 @@ def index_repo_incremental(
     import config
     from indexing.ast_chunker import chunk_code_intelligently, chunk_text
     
+    # Limit workers to reasonable range
+    num_workers = max(1, min(num_workers, 16))
+    
     repo_root = os.path.abspath(repo_root)
     index_dir = index_dir or config.DEFAULT_INDEX_DIR
     collection_name = collection_name or config.DEFAULT_COLLECTION_NAME
     
     log(f"Incremental indexing: {repo_root}")
+    log(f"Parallel workers: {num_workers}")
     log(f"Force full reindex: {force_full_reindex}")
     
     client = chromadb.PersistentClient(
@@ -140,7 +150,6 @@ def index_repo_incremental(
     # Delete chunks from removed files
     for rel_path in files_to_delete:
         log(f"Removing: {rel_path}")
-        # Delete all chunks with this source
         ids_to_delete = []
         for chunk_id, meta in zip(existing_chunks['ids'], existing_chunks['metadatas']):
             if meta and meta.get('source') == rel_path:
@@ -162,58 +171,129 @@ def index_repo_incremental(
             collection.delete(ids=ids_to_delete)
             log(f"  Deleted {len(ids_to_delete)} old chunks")
     
-    # Index new and updated files
+    # Process new and updated files IN PARALLEL
     files_to_process = files_to_add + files_to_update
+    
+    if not files_to_process:
+        log("")
+        log("DONE.")
+        return
+    
+    log("")
+    log(f"Processing {len(files_to_process)} files with {num_workers} workers...")
+    
+    # Thread-safe counters and locks
     total_chunks_added = 0
     total_files_processed = 0
     total_failed = 0
+    stats_lock = Lock()
     
-    for rel_path, full_path, file_hash in files_to_process:
-        log(f"Processing: {rel_path}")
+    # Worker function to process a single file
+    def process_file(file_info):
+        rel_path, full_path, file_hash = file_info
         
         try:
+            # Read file
             with open(full_path, "r", encoding="utf8", errors="ignore") as f:
                 text = f.read()
         except Exception as e:
-            log(f"  Error reading file: {e}")
-            total_failed += 1
-            continue
+            return {
+                'success': False,
+                'rel_path': rel_path,
+                'error': f"Error reading: {e}",
+                'chunks': 0
+            }
         
         if not text.strip():
-            continue
+            return {
+                'success': True,
+                'rel_path': rel_path,
+                'chunks': 0
+            }
         
         # Chunk the file
-        if use_ast_chunking:
-            chunks = chunk_file_intelligently(text, full_path, chars_per_chunk, chunk_overlap)
-        else:
-            chunks = chunk_text(text, chars_per_chunk, chunk_overlap)
+        try:
+            if use_ast_chunking:
+                chunks = chunk_file_intelligently(text, full_path, chars_per_chunk, chunk_overlap)
+            else:
+                chunks = chunk_text(text, chars_per_chunk, chunk_overlap)
+        except Exception as e:
+            return {
+                'success': False,
+                'rel_path': rel_path,
+                'error': f"Chunking error: {e}",
+                'chunks': 0
+            }
         
-        # Add chunks
+        # Prepare chunks for batch insertion
+        chunk_data = []
+        failed_chunks = 0
+        
         for idx, chunk in enumerate(chunks):
             chunk = sanitize_chunk(chunk)
             is_valid, reason = is_valid_chunk(chunk)
             if not is_valid:
-                total_failed += 1
+                failed_chunks += 1
                 continue
             
-            try:
-                collection.add(
-                    ids=[f"{rel_path}::chunk_{idx}"],
-                    documents=[chunk],
-                    metadatas=[{
-                        "source": rel_path,
-                        "chunk_index": idx,
-                        "file_hash": file_hash  # NEW: Track file hash
-                    }],
-                )
-                total_chunks_added += 1
-            except Exception as e:
-                log(f"  Failed to add chunk {idx}: {e}")
-                total_failed += 1
-                continue
+            chunk_data.append({
+                'id': f"{rel_path}::chunk_{idx}",
+                'document': chunk,
+                'metadata': {
+                    "source": rel_path,
+                    "chunk_index": idx,
+                    "file_hash": file_hash
+                }
+            })
         
-        total_files_processed += 1
-        log(f"  Added {len(chunks)} chunks")
+        return {
+            'success': True,
+            'rel_path': rel_path,
+            'chunk_data': chunk_data,
+            'failed_chunks': failed_chunks,
+            'chunks': len(chunk_data)
+        }
+    
+    # Process files in parallel with thread pool
+    with ThreadPoolExecutor(max_workers=num_workers) as executor:
+        # Submit all files
+        future_to_file = {
+            executor.submit(process_file, file_info): file_info 
+            for file_info in files_to_process
+        }
+        
+        # Collect results as they complete
+        for future in as_completed(future_to_file):
+            result = future.result()
+            
+            if result['success']:
+                # Add chunks to collection (ChromaDB handles threading internally)
+                if result.get('chunk_data'):
+                    try:
+                        collection.add(
+                            ids=[c['id'] for c in result['chunk_data']],
+                            documents=[c['document'] for c in result['chunk_data']],
+                            metadatas=[c['metadata'] for c in result['chunk_data']],
+                        )
+                        
+                        with stats_lock:
+                            total_chunks_added += result['chunks']
+                            total_files_processed += 1
+                            total_failed += result.get('failed_chunks', 0)
+                        
+                        log(f"✓ {result['rel_path']}: {result['chunks']} chunks")
+                    except Exception as e:
+                        with stats_lock:
+                            total_failed += result['chunks']
+                        log(f"✗ {result['rel_path']}: Failed to add chunks - {e}")
+                else:
+                    with stats_lock:
+                        total_files_processed += 1
+                    log(f"○ {result['rel_path']}: Empty/skipped")
+            else:
+                with stats_lock:
+                    total_failed += 1
+                log(f"✗ {result['rel_path']}: {result.get('error', 'Unknown error')}")
     
     log("")
     log("DONE.")

@@ -270,13 +270,37 @@ class IndexTab(ttk.Frame):
                 ),
             ),
         ).grid(row=5, column=3)
+        # Parallel workers
+        ttk.Label(params_frame, text="Parallel workers:").grid(row=7, column=0, sticky="w")
+        self.num_workers_var = tk.StringVar(value=str(s.get("num_workers", 4)))
+        ttk.Entry(params_frame, textvariable=self.num_workers_var, width=5).grid(
+            row=7, column=1, sticky="w", padx=4
+        )
+        ttk.Button(
+            params_frame,
+            text="?",
+            width=2,
+            command=lambda: self._show_help(
+                "Parallel workers",
+                (
+                    "Number of parallel threads for indexing.\n\n"
+                    "Higher = faster for large codebases, but uses more CPU.\n\n"
+                    "Recommended:\n"
+                    "  Small repos (<1000 files): 1-2 workers\n"
+                    "  Medium repos (1000-5000 files): 4-8 workers\n"
+                    "  Large repos (5000+ files): 8-12 workers\n\n"
+                    "Note: More workers = more memory usage"
+                ),
+            ),
+        ).grid(row=7, column=3)
+
 
         # Exclude directories
-        ttk.Label(params_frame, text="Exclude directories:").grid(row=6, column=0, sticky="w")
+        ttk.Label(params_frame, text="Exclude directories:").grid(row=8, column=0, sticky="w")
         default_excluded = ".git, .idea, .vscode, node_modules, build, dist, out, target, .gradle, .venv, venv, __pycache__"
         self.exclude_dirs_var = tk.StringVar(value=s.get("exclude_dirs_csv", default_excluded))
         ttk.Entry(params_frame, textvariable=self.exclude_dirs_var, width=60).grid(
-            row=6, column=1, sticky="we", padx=4
+            row=8, column=1, sticky="we", padx=4
         )
         ttk.Button(
             params_frame,
@@ -430,6 +454,7 @@ class IndexTab(ttk.Frame):
             "chars_per_chunk": int(self.chars_per_chunk_var.get() or CHARS_PER_CHUNK),
             "chunk_overlap": int(self.chunk_overlap_var.get() or CHUNK_OVERLAP),
             "max_file_bytes": int(self.max_file_bytes_var.get() or MAX_FILE_BYTES),
+            "num_workers": int(self.num_workers_var.get() or 4),
             "exclude_dirs_csv": self.exclude_dirs_var.get(),
             "filetypes": {ext: var.get() for ext, var in self._ext_vars.items()},
         }
@@ -450,6 +475,7 @@ class IndexTab(ttk.Frame):
             self.chars_per_chunk_var,
             self.chunk_overlap_var,
             self.max_file_bytes_var,
+            self.num_workers_var,
             self.exclude_dirs_var,
         ]:
             v.trace_add("write", on_any_change)
@@ -482,6 +508,7 @@ class IndexTab(ttk.Frame):
             chars = int(self.chars_per_chunk_var.get())
             overlap = int(self.chunk_overlap_var.get())
             max_bytes = int(self.max_file_bytes_var.get())
+            num_workers = int(self.num_workers_var.get())
         except ValueError:
             messagebox.showerror("Error", "Numeric fields must contain integers.")
             return
@@ -535,6 +562,7 @@ class IndexTab(ttk.Frame):
                     use_ast_chunking=True,
                     skip_problematic_files=True,
                     force_full_reindex=force_full,
+                    num_workers=num_workers,
                     log=self._log,
                 )
                 self._done(True)
