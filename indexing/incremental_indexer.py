@@ -1,0 +1,289 @@
+"""
+Incremental indexer - can update existing indexes without full rebuild.
+"""
+
+import os
+import hashlib
+from pathlib import Path
+
+def get_file_hash(filepath: str) -> str:
+    """Get SHA256 hash of file contents."""
+    try:
+        with open(filepath, 'rb') as f:
+            return hashlib.sha256(f.read()).hexdigest()
+    except:
+        return ""
+
+def index_repo_incremental(
+    repo_root: str,
+    index_dir: str | None = None,
+    collection_name: str | None = None,
+    index_exts: set[str] | None = None,
+    excluded_dirs: set[str] | None = None,
+    max_file_bytes: int = 500_000,
+    chars_per_chunk: int = 1200,
+    chunk_overlap: int = 200,
+    use_ast_chunking: bool = True,
+    skip_problematic_files: bool = True,
+    force_full_reindex: bool = False,  # NEW: Option to force full rebuild
+    log=print,
+):
+    """
+    Index repository incrementally - only processes new or modified files.
+    
+    Tracks file hashes in collection metadata to detect changes.
+    """
+    import chromadb
+    from chromadb.config import Settings
+    import chromadb.utils.embedding_functions as embedding_functions
+    import config
+    from indexing.ast_chunker import chunk_code_intelligently, chunk_text
+    
+    repo_root = os.path.abspath(repo_root)
+    index_dir = index_dir or config.DEFAULT_INDEX_DIR
+    collection_name = collection_name or config.DEFAULT_COLLECTION_NAME
+    
+    log(f"Incremental indexing: {repo_root}")
+    log(f"Force full reindex: {force_full_reindex}")
+    
+    client = chromadb.PersistentClient(
+        path=index_dir,
+        settings=Settings(anonymized_telemetry=False),
+    )
+    
+    embedding_function = embedding_functions.OllamaEmbeddingFunction(
+        url=config.OLLAMA_URL,
+        model_name=config.EMBED_MODEL
+    )
+    
+    # Full reindex: delete and recreate
+    if force_full_reindex:
+        log("Performing FULL reindex...")
+        try:
+            client.delete_collection(collection_name)
+            log(f"Deleted existing collection: {collection_name}")
+        except:
+            pass
+    
+    # Get or create collection
+    collection = client.get_or_create_collection(
+        name=collection_name,
+        metadata={"description": "Code and documentation chunks"},
+        embedding_function=embedding_function,
+    )
+    
+    # Get existing file hashes from metadata
+    log("Loading existing index state...")
+    existing_chunks = collection.get(include=['metadatas'])
+    
+    # Build map of file -> hash from existing chunks
+    indexed_files = {}
+    for meta in existing_chunks.get('metadatas', []):
+        if meta:
+            source = meta.get('source')
+            file_hash = meta.get('file_hash')
+            if source and file_hash:
+                indexed_files[source] = file_hash
+    
+    log(f"Found {len(indexed_files)} already-indexed files")
+    
+    # Scan repository for current files
+    current_files = {}
+    for root, dirs, files in os.walk(repo_root):
+        dirs[:] = [d for d in dirs if d not in excluded_dirs]
+        
+        for fname in files:
+            full_path = os.path.join(root, fname)
+            rel_path = os.path.relpath(full_path, repo_root)
+            
+            if not should_index_file(full_path, index_exts):
+                continue
+            
+            try:
+                if os.path.getsize(full_path) > max_file_bytes:
+                    continue
+            except OSError:
+                continue
+            
+            file_hash = get_file_hash(full_path)
+            if file_hash:
+                current_files[rel_path] = (full_path, file_hash)
+    
+    log(f"Found {len(current_files)} indexable files in repository")
+    
+    # Determine what needs to be done
+    files_to_add = []
+    files_to_update = []
+    files_to_delete = []
+    
+    for rel_path, (full_path, file_hash) in current_files.items():
+        if rel_path not in indexed_files:
+            files_to_add.append((rel_path, full_path, file_hash))
+        elif indexed_files[rel_path] != file_hash:
+            files_to_update.append((rel_path, full_path, file_hash))
+    
+    for rel_path in indexed_files:
+        if rel_path not in current_files:
+            files_to_delete.append(rel_path)
+    
+    log("")
+    log(f"Files to add:    {len(files_to_add)}")
+    log(f"Files to update: {len(files_to_update)}")
+    log(f"Files to delete: {len(files_to_delete)}")
+    log(f"Files unchanged: {len(current_files) - len(files_to_add) - len(files_to_update)}")
+    
+    if not files_to_add and not files_to_update and not files_to_delete:
+        log("")
+        log("✓ Index is up to date! No changes needed.")
+        return
+    
+    # Delete chunks from removed files
+    for rel_path in files_to_delete:
+        log(f"Removing: {rel_path}")
+        # Delete all chunks with this source
+        ids_to_delete = []
+        for chunk_id, meta in zip(existing_chunks['ids'], existing_chunks['metadatas']):
+            if meta and meta.get('source') == rel_path:
+                ids_to_delete.append(chunk_id)
+        
+        if ids_to_delete:
+            collection.delete(ids=ids_to_delete)
+            log(f"  Deleted {len(ids_to_delete)} chunks")
+    
+    # Delete chunks from modified files (will re-add below)
+    for rel_path, full_path, file_hash in files_to_update:
+        log(f"Updating: {rel_path}")
+        ids_to_delete = []
+        for chunk_id, meta in zip(existing_chunks['ids'], existing_chunks['metadatas']):
+            if meta and meta.get('source') == rel_path:
+                ids_to_delete.append(chunk_id)
+        
+        if ids_to_delete:
+            collection.delete(ids=ids_to_delete)
+            log(f"  Deleted {len(ids_to_delete)} old chunks")
+    
+    # Index new and updated files
+    files_to_process = files_to_add + files_to_update
+    total_chunks_added = 0
+    total_files_processed = 0
+    total_failed = 0
+    
+    for rel_path, full_path, file_hash in files_to_process:
+        log(f"Processing: {rel_path}")
+        
+        try:
+            with open(full_path, "r", encoding="utf8", errors="ignore") as f:
+                text = f.read()
+        except Exception as e:
+            log(f"  Error reading file: {e}")
+            total_failed += 1
+            continue
+        
+        if not text.strip():
+            continue
+        
+        # Chunk the file
+        if use_ast_chunking:
+            chunks = chunk_file_intelligently(text, full_path, chars_per_chunk, chunk_overlap)
+        else:
+            chunks = chunk_text(text, chars_per_chunk, chunk_overlap)
+        
+        # Add chunks
+        for idx, chunk in enumerate(chunks):
+            chunk = sanitize_chunk(chunk)
+            is_valid, reason = is_valid_chunk(chunk)
+            if not is_valid:
+                total_failed += 1
+                continue
+            
+            try:
+                collection.add(
+                    ids=[f"{rel_path}::chunk_{idx}"],
+                    documents=[chunk],
+                    metadatas=[{
+                        "source": rel_path,
+                        "chunk_index": idx,
+                        "file_hash": file_hash  # NEW: Track file hash
+                    }],
+                )
+                total_chunks_added += 1
+            except Exception as e:
+                log(f"  Failed to add chunk {idx}: {e}")
+                total_failed += 1
+                continue
+        
+        total_files_processed += 1
+        log(f"  Added {len(chunks)} chunks")
+    
+    log("")
+    log("DONE.")
+    log(f"Files processed: {total_files_processed}")
+    log(f"Chunks added: {total_chunks_added}")
+    log(f"Chunks failed: {total_failed}")
+
+
+# Helper functions (copy from original indexer.py)
+
+def sanitize_chunk(chunk: str) -> str:
+    """Sanitize chunk to improve embedding success."""
+    import re
+    chunk = chunk.replace('\x00', '')
+    chunk = ''.join(char for char in chunk if ord(char) >= 32 or char in '\n\t\r')
+    chunk = re.sub(r'\n{4,}', '\n\n\n', chunk)
+    return chunk.strip()
+
+def is_valid_chunk(chunk: str, max_length: int = 8000) -> tuple[bool, str]:
+    """Validate if chunk is suitable for embedding."""
+    if not chunk or not chunk.strip():
+        return False, "empty chunk"
+    
+    if len(chunk) > max_length:
+        return False, f"chunk too long ({len(chunk)} > {max_length})"
+    
+    null_bytes = chunk.count('\x00')
+    if null_bytes > 10:
+        return False, f"contains {null_bytes} null bytes"
+    
+    printable_chars = sum(1 for c in chunk if c.isprintable() or c in '\n\t\r')
+    if len(chunk) > 100 and printable_chars / len(chunk) < 0.7:
+        return False, f"low printable ratio"
+    
+    return True, "valid"
+
+def should_index_file(path: str, index_exts: set[str]) -> bool:
+    """Check if file should be indexed."""
+    _, ext = os.path.splitext(path)
+    return ext.lower() in index_exts
+
+def is_code_file(path: str) -> bool:
+    """Check if file should use AST chunking."""
+    CODE_FILE_EXTS = {
+        ".py", ".pyi", ".java", ".cs", ".csx",
+        ".js", ".jsx", ".ts", ".tsx",
+        ".go", ".rs", ".cpp", ".cc", ".cxx", ".c",
+    }
+    _, ext = os.path.splitext(path)
+    return ext.lower() in CODE_FILE_EXTS
+
+def chunk_file_intelligently(text: str, file_path: str, chars_per_chunk: int, chunk_overlap: int) -> list[str]:
+    """Chunk file using appropriate strategy."""
+    from indexing.ast_chunker import chunk_code_intelligently, chunk_text
+    
+    if is_code_file(file_path):
+        try:
+            chunks = chunk_code_intelligently(text, file_path, max_chunk_size=chars_per_chunk, chunk_overlap=chunk_overlap)
+            
+            # Split oversized chunks
+            final_chunks = []
+            for i, chunk in enumerate(chunks):
+                if len(chunk) > chars_per_chunk:
+                    split_chunks = chunk_text(chunk, chars_per_chunk, chunk_overlap)
+                    final_chunks.extend(split_chunks)
+                else:
+                    final_chunks.append(chunk)
+            
+            return final_chunks
+        except Exception:
+            return chunk_text(text, chars_per_chunk, chunk_overlap)
+    else:
+        return chunk_text(text, chars_per_chunk, chunk_overlap)

@@ -5,6 +5,7 @@ from tkinter import ttk, filedialog, messagebox
 from tkinter.scrolledtext import ScrolledText
 
 from config import DEFAULT_INDEX_DIR, DEFAULT_REPO_ROOT, DEFAULT_COLLECTION_NAME
+from indexing.incremental_indexer import index_repo_incremental
 from indexing.indexer import (
     index_repo,
     CHARS_PER_CHUNK,
@@ -356,11 +357,30 @@ class IndexTab(ttk.Frame):
         bottom_frame = ttk.Frame(self)
         bottom_frame.pack(fill="x", padx=8, pady=8)
 
+        # Incremental mode checkbox
+        self.incremental_mode_var = tk.BooleanVar(value=True)
+        self.incremental_chk = ttk.Checkbutton(
+            bottom_frame,
+            text="Incremental Update (only process changed files)",
+            variable=self.incremental_mode_var
+        )
+        self.incremental_chk.pack(side="left", padx=(0, 10))
+
+        # Index button
         self.run_btn = ttk.Button(bottom_frame, text="Index", command=self.run_index)
         self.run_btn.pack(side="left")
 
+        # Full reindex button
+        self.full_reindex_btn = ttk.Button(
+            bottom_frame,
+            text="Full Reindex",
+            command=self.run_full_reindex
+        )
+        self.full_reindex_btn.pack(side="left", padx=(5, 0))
+
         self.status_label = ttk.Label(bottom_frame, text="")
         self.status_label.pack(side="right")
+
 
         log_frame = ttk.LabelFrame(self, text="Index log")
         log_frame.pack(fill="both", expand=True, padx=8, pady=4)
@@ -499,7 +519,11 @@ class IndexTab(ttk.Frame):
 
         def worker():
             try:
-                index_repo(
+                # Get incremental mode setting
+                incremental = self.incremental_mode_var.get()
+                force_full = not incremental
+                
+                index_repo_incremental(
                     repo_root=repo_root,
                     index_dir=index_dir,
                     collection_name=collection_name,
@@ -508,6 +532,9 @@ class IndexTab(ttk.Frame):
                     max_file_bytes=max_bytes,
                     chars_per_chunk=chars,
                     chunk_overlap=overlap,
+                    use_ast_chunking=True,
+                    skip_problematic_files=True,
+                    force_full_reindex=force_full,
                     log=self._log,
                 )
                 self._done(True)
@@ -515,8 +542,34 @@ class IndexTab(ttk.Frame):
                 self._log(f"Error: {e}")
                 self._done(False)
 
+
         self._current_thread = threading.Thread(target=worker, daemon=True)
         self._current_thread.start()
+
+    def run_full_reindex(self):
+        """Force a full reindex, ignoring incremental mode."""
+        response = messagebox.askyesno(
+            "Full Reindex",
+            "This will DELETE the entire existing index and rebuild from scratch.\n\n"
+            "This is useful if:\n"
+            "- You changed embedding models\n"
+            "- The index is corrupted\n"
+            "- You want to ensure everything is fresh\n\n"
+            "Continue with full reindex?"
+        )
+        
+        if not response:
+            return
+        
+        # Temporarily disable incremental mode
+        original_value = self.incremental_mode_var.get()
+        self.incremental_mode_var.set(False)
+        
+        # Run index (will use force_full_reindex=True)
+        self.run_index()
+        
+        # Restore original value
+        self.incremental_mode_var.set(original_value)
 
     def _done(self, ok: bool):
         def finish():
