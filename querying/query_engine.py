@@ -4,6 +4,7 @@ from typing import Callable, Any
 import requests
 import chromadb
 from chromadb.config import Settings
+import chromadb.utils.embedding_functions as embedding_functions
 
 import config  # note: import module, not constants
 
@@ -83,7 +84,8 @@ def _summarize_query(long_text: str, template: str, log: LogFn) -> str:
 def _chat_with_context(question: str, docs, metas, template: str, log: LogFn) -> str:
     context_parts = []
     for i, (doc, meta) in enumerate(zip(docs, metas), 1):
-        path = meta.get("path", "<unknown>")
+        # FIXED: Changed from "path" to "source" to match indexer metadata
+        path = meta.get("source", meta.get("path", "<unknown>"))
         chunk_idx = meta.get("chunk_index", "?")
         header = f"[Snippet {i} from {path} chunk {chunk_idx}]"
         context_parts.append(header + "\n" + doc)
@@ -144,22 +146,18 @@ def _compute_relative_scores(distances: list[float]) -> list[float]:
 
 def run_query(
     bug_text: str,
-    index_dir: str,
-    repo_root: str | None,
-    top_k: int,
-    max_chars: int,
-    summarizer_template: str,
-    chat_template: str,
+    index_dir: str | None = None,
+    repo_root: str | None = None,  # Added to match GUI call
+    top_k: int = 12,
+    max_chars: int = 4000,
+    summarizer_template: str = "",
+    chat_template: str = "",
     log: LogFn = print,
-) -> dict:
-    if not index_dir:
-        raise ValueError("Index directory is required.")
-    if not os.path.isdir(index_dir):
-        raise FileNotFoundError(f"Index directory does not exist: {index_dir}")
-
-    if repo_root and not os.path.isdir(repo_root):
-        raise FileNotFoundError(f"Repo root directory does not exist: {repo_root}")
-
+):
+    """
+    Run a query against the ChromaDB index using Ollama embeddings and chat.
+    """
+    index_dir = index_dir or config.DEFAULT_INDEX_DIR
     bug = bug_text.strip()
     if not bug:
         raise ValueError("Bug or question text is required.")
@@ -186,6 +184,7 @@ def run_query(
         else:
             log(f"[query_engine] Using collection: {collections[0].name}")
 
+        # Get collection without embedding function since we do manual embedding
         collection = client.get_collection(collections[0].name)
 
     except Exception as e:
@@ -208,9 +207,10 @@ def run_query(
 
     log(f"[query_engine] Querying index for top {top_k} snippets...")
 
+    # Get extra results so we have room to boost docs and still return top_k
     res = collection.query(
         query_embeddings=[q_embedding],
-        n_results=top_k,
+        n_results=top_k * 2,
         include=["documents", "metadatas", "distances"],
     )
 
@@ -225,6 +225,26 @@ def run_query(
     docs = docs_list[0]
     metas = metas_list[0]
     dists = dist_list[0]
+    
+    # Always boost documentation files to ensure they compete with code
+    # Documentation often has more natural language that matches queries better
+    adjusted_results = []
+    for doc, meta, dist in zip(docs, metas, dists):
+        source = meta.get("source", "")
+        # Give docs a slight boost by reducing their distance
+        if source.endswith(('.md', '.txt', '.rst', '.adoc')):
+            boosted_dist = dist * 0.75  # Make docs appear 25% closer
+            adjusted_results.append((doc, meta, boosted_dist))
+        else:
+            adjusted_results.append((doc, meta, dist))
+    
+    # Sort by adjusted distance and take top_k
+    adjusted_results.sort(key=lambda x: x[2])
+    adjusted_results = adjusted_results[:top_k]
+    
+    docs = [r[0] for r in adjusted_results]
+    metas = [r[1] for r in adjusted_results]
+    dists = [r[2] for r in adjusted_results]
 
     scores = _compute_relative_scores(dists)
 
@@ -233,7 +253,8 @@ def run_query(
 
     log("Using snippets from:")
     for idx, (meta, dist, score) in enumerate(zip(metas, dists, scores), start=1):
-        path = meta.get("path", "<unknown>")
+        # FIXED: Changed from "path" to "source" to match indexer metadata
+        path = meta.get("source", meta.get("path", "<unknown>"))
         chunk_idx = meta.get("chunk_index", "?")
         log(
             f"  [{idx:02d}] {score:5.1f}%  {path} (chunk {chunk_idx}, distance {dist:.4f})"

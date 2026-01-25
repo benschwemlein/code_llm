@@ -394,7 +394,7 @@ class QueryTab(ttk.Frame):
                     log=self._log,
                 )
             except Exception as e:
-                self.after(0, lambda: self._on_query_error(e))
+                self.after(0, lambda err=e: self._on_query_error(err))
                 return
 
             self.after(0, lambda: self._on_query_done(result, index_dir, repo_root))

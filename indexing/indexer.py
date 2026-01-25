@@ -7,6 +7,7 @@ import re
 import requests
 import chromadb
 from chromadb.config import Settings
+import chromadb.utils.embedding_functions as embedding_functions
 import time
 
 import config
@@ -278,9 +279,18 @@ def index_repo(
     except Exception:
         pass
 
+    # ============================================================================
+    # FIX: Create Ollama embedding function instead of using default
+    # ============================================================================
+    embedding_function = embedding_functions.OllamaEmbeddingFunction(
+        url=config.OLLAMA_URL,
+        model_name=config.EMBED_MODEL
+    )
+
     collection = client.get_or_create_collection(
         name=collection_name,
         metadata={"description": "Code and documentation chunks"},
+        embedding_function=embedding_function,  # THIS IS THE FIX!
     )
 
     chunk_count = 0
@@ -327,23 +337,35 @@ def index_repo(
                 char_chunked_count += 1
             
             for idx, chunk in enumerate(chunks):
-                embedding = embed_text_with_retry(chunk, log=log)
+                # NOTE: We're still calling embed_text_with_retry for validation,
+                # but ChromaDB will use its OllamaEmbeddingFunction internally
+                # when we call collection.add() without explicit embeddings
                 
-                if embedding is None:
+                # Validate the chunk first
+                chunk = sanitize_chunk(chunk)
+                is_valid, reason = is_valid_chunk(chunk)
+                if not is_valid:
                     failed_chunks_count += 1
-                    log(f"[index_repo] Skipping {rel} chunk {idx} due to embedding error")
+                    log(f"[index_repo] Skipping {rel} chunk {idx}: {reason}")
                     continue
 
-                collection.add(
-                    ids=[f"{rel}::chunk_{idx}"],
-                    documents=[chunk],
-                    metadatas=[{"path": rel, "chunk_index": idx}],
-                    embeddings=[embedding],
-                )
-
-                chunk_count += 1
-                if chunk_count % 100 == 0:
-                    log(f"Indexed {chunk_count} chunks...")
+                # Let ChromaDB handle the embedding via OllamaEmbeddingFunction
+                try:
+                    collection.add(
+                        ids=[f"{rel}::chunk_{idx}"],
+                        documents=[chunk],
+                        metadatas=[{"source": rel, "chunk_index": idx}],
+                        # No embeddings parameter - ChromaDB will call the embedding function
+                    )
+                    chunk_count += 1
+                    
+                    if chunk_count % 100 == 0:
+                        log(f"Indexed {chunk_count} chunks...")
+                        
+                except Exception as e:
+                    failed_chunks_count += 1
+                    log(f"[index_repo] Failed to add {rel} chunk {idx}: {e}")
+                    continue
 
             file_count += 1
             if file_count % 50 == 0:

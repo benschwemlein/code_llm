@@ -8,7 +8,7 @@ from tkinter import ttk, messagebox
 import config
 
 # Requires: ollama/__init__.py exists
-from ollama.download_manager import DownloadManager, PullProgress
+from ollama_manager.download_manager import DownloadManager, PullProgress
 
 # Curated metadata for common models.
 # We match by base name before ":" tag (example: "llama3.1:8b" -> "llama3.1").
