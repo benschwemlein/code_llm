@@ -5,6 +5,7 @@ Uses thread pool for parallel file processing.
 
 import os
 import hashlib
+import time
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
@@ -31,6 +32,7 @@ def index_repo_incremental(
     skip_problematic_files: bool = True,
     force_full_reindex: bool = False,
     num_workers: int = 4,  # NEW: Number of parallel workers
+    verbose: bool = False,  # NEW: Show individual file progress
     log=print,
 ):
     """
@@ -51,6 +53,8 @@ def index_repo_incremental(
     repo_root = os.path.abspath(repo_root)
     index_dir = index_dir or config.DEFAULT_INDEX_DIR
     collection_name = collection_name or config.DEFAULT_COLLECTION_NAME
+    
+    start_time = time.time()
     
     log(f"Incremental indexing: {repo_root}")
     log(f"Parallel workers: {num_workers}")
@@ -119,7 +123,8 @@ def index_repo_incremental(
             if file_hash:
                 current_files[rel_path] = (full_path, file_hash)
     
-    log(f"Found {len(current_files)} indexable files in repository")
+    total_repo_files = len(current_files)
+    log(f"Found {total_repo_files} indexable files in repository")
     
     # Determine what needs to be done
     files_to_add = []
@@ -280,26 +285,35 @@ def index_repo_incremental(
                             total_chunks_added += result['chunks']
                             total_files_processed += 1
                             total_failed += result.get('failed_chunks', 0)
-                        
-                        log(f"✓ {result['rel_path']}: {result['chunks']} chunks")
+                            
+                            if verbose:
+                                log(f"✓ {result['rel_path']}: {result['chunks']} chunks")
+                            elif total_files_processed % 10 == 0:
+                                log(f"Progress: {total_files_processed}/{len(files_to_process)} files, {total_chunks_added} chunks")
                     except Exception as e:
                         with stats_lock:
                             total_failed += result['chunks']
-                        log(f"✗ {result['rel_path']}: Failed to add chunks - {e}")
+                        if verbose:
+                            log(f"✗ {result['rel_path']}: Failed to add chunks - {e}")
                 else:
                     with stats_lock:
                         total_files_processed += 1
-                    log(f"○ {result['rel_path']}: Empty/skipped")
+                    if verbose:
+                        log(f"○ {result['rel_path']}: Empty/skipped")
             else:
                 with stats_lock:
                     total_failed += 1
-                log(f"✗ {result['rel_path']}: {result.get('error', 'Unknown error')}")
+                if verbose:
+                    log(f"✗ {result['rel_path']}: {result.get('error', 'Unknown error')}")
+    
+    elapsed_time = time.time() - start_time
     
     log("")
     log("DONE.")
     log(f"Files processed: {total_files_processed}")
     log(f"Chunks added: {total_chunks_added}")
     log(f"Chunks failed: {total_failed}")
+    log(f"Time elapsed: {elapsed_time:.1f} seconds ({elapsed_time/60:.1f} minutes)")
 
 
 # Helper functions (copy from original indexer.py)

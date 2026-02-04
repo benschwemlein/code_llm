@@ -390,6 +390,15 @@ class IndexTab(ttk.Frame):
         )
         self.incremental_chk.pack(side="left", padx=(0, 10))
 
+        # Verbose logging checkbox
+        self.verbose_mode_var = tk.BooleanVar(value=False)
+        self.verbose_chk = ttk.Checkbutton(
+            bottom_frame,
+            text="Show individual files",
+            variable=self.verbose_mode_var
+        )
+        self.verbose_chk.pack(side="left", padx=(0, 10))
+
         # Index button
         self.run_btn = ttk.Button(bottom_frame, text="Index", command=self.run_index)
         self.run_btn.pack(side="left")
@@ -546,9 +555,10 @@ class IndexTab(ttk.Frame):
 
         def worker():
             try:
-                # Get incremental mode setting
+                # Get mode settings
                 incremental = self.incremental_mode_var.get()
                 force_full = not incremental
+                verbose = self.verbose_mode_var.get()
                 
                 index_repo_incremental(
                     repo_root=repo_root,
@@ -563,6 +573,7 @@ class IndexTab(ttk.Frame):
                     skip_problematic_files=True,
                     force_full_reindex=force_full,
                     num_workers=num_workers,
+                    verbose=verbose,
                     log=self._log,
                 )
                 self._done(True)
