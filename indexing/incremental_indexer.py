@@ -31,7 +31,7 @@ def index_repo_incremental(
     use_ast_chunking: bool = True,
     skip_problematic_files: bool = True,
     force_full_reindex: bool = False,
-    num_workers: int = 4,  # NEW: Number of parallel workers
+    num_workers: int = 2,  # 2 is safe with mxbai-embed-large; 4 deadlocks Ollama
     verbose: bool = False,  # NEW: Show individual file progress
     log=print,
 ):

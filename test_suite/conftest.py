@@ -63,7 +63,7 @@ def indexed_app(sample_app_path, session_index_dir):
         repo_root=sample_app_path,
         index_dir=session_index_dir,
         force_full_reindex=True,
-        num_workers=1,  # mxbai-embed-large deadlocks Ollama under parallel load
+        num_workers=2,  # mxbai-embed-large is stable at 2 workers (4 deadlocks Ollama)
         verbose=False,
         log=logs.append,
     )
