@@ -17,7 +17,7 @@
     "chunk_overlap": 200,
     "max_file_bytes": 500000,
 
-    "exclude_dirs_csv": ".git, .idea, .vscode, node_modules, build, dist, out, target, .gradle, .venv, venv, __pycache__",
+    "exclude_dirs_csv": ".git, .idea, .vscode, node_modules, build, dist, out, target, .gradle, .venv, venv, __pycache__, .claude, ios, Scandit, TcpSocket",
 
     "filetypes": {
       ".cs": true,
