@@ -36,7 +36,7 @@ def build_default_settings() -> dict:
             "chars_per_chunk": CHARS_PER_CHUNK,
             "chunk_overlap": CHUNK_OVERLAP,
             "max_file_bytes": MAX_FILE_BYTES,
-            "exclude_dirs_csv": ".git, .idea, .vscode, node_modules, build, dist, out, target, .gradle, .venv, venv, __pycache__",
+            "exclude_dirs_csv": ".git, .idea, .vscode, node_modules, build, dist, out, target, .gradle, .venv, venv, __pycache__, .claude, ios, Scandit, TcpSocket",
             "filetypes": filetypes,
         },
         "query_tab": {
