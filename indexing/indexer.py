@@ -4,6 +4,7 @@ Complete indexer with AST chunking and proper error handling.
 
 import os
 import re
+import hashlib
 import requests
 import chromadb
 from chromadb.config import Settings
@@ -324,6 +325,7 @@ def index_repo(
                 continue
 
             rel = os.path.relpath(full, repo_root)
+            file_hash = hashlib.sha256(text.encode("utf8", errors="ignore")).hexdigest()
             
             # Chunk the file
             if use_ast_chunking:
@@ -354,7 +356,7 @@ def index_repo(
                     collection.add(
                         ids=[f"{rel}::chunk_{idx}"],
                         documents=[chunk],
-                        metadatas=[{"source": rel, "chunk_index": idx}],
+                        metadatas=[{"source": rel, "chunk_index": idx, "file_hash": file_hash}],
                         # No embeddings parameter - ChromaDB will call the embedding function
                     )
                     chunk_count += 1
