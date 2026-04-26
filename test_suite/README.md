@@ -35,6 +35,7 @@ Mutation tests (incremental update, delete, modify) get a cheap `shutil.copytree
 | `test_05_chunking_strategies.py` | Compares AST vs text chunking at 3 chunk sizes — report only, always passes |
 | `test_06_overlap_tuning.py` | Compares text overlap values (0–600) at fixed 800-char chunks — report only |
 | `test_07_answer_quality.py` | LLM answer faithfulness + reference keyword overlap for 10 queries |
+| `test_08_model_comparison.py` | Compares chat models on faithfulness + reference overlap — report only |
 
 ---
 
@@ -89,6 +90,27 @@ Variant           p@5   r@10    MRR
 
 ---
 
+## Chat model comparison results (test_08)
+
+```
+Model                   faith   ref_ovlp
+--------------------------------------------
+  llama3.1               0.41     0.38
+  deepseek-coder:6.7b    0.42     0.38
+  qwen2.5:7b             0.56     0.41  ← current default
+--------------------------------------------
+```
+
+`qwen2.5:7b` wins on both metrics. Faithfulness +37% over llama3.1 — it cites class names
+rather than paraphrasing. `deepseek-coder` strong on some queries but inconsistent.
+
+Run with:
+```bash
+python3.13 -m pytest test_suite/test_08_model_comparison.py -m chunking_eval -v -s
+```
+
+---
+
 ## Current defaults
 
 | Parameter | Value | Set in |
@@ -97,10 +119,12 @@ Variant           p@5   r@10    MRR
 | `chunk_overlap` | 200 | `indexer.py`, `incremental_indexer.py` |
 | `use_ast_chunking` | False (text) | GUI default |
 | `max_file_bytes` | 500,000 | `indexer.py` |
+| `embed_model` | nomic-embed-text | `config.json` |
+| `chat_model` | qwen2.5:7b | `config.json` |
 
 ---
 
-## Answer quality results (test_07, llama3.1)
+## Answer quality results (test_07, llama3.1 baseline)
 
 Faithfulness = fraction of retrieved class names mentioned in answer.
 Reference overlap = keyword match against hand-written reference answer.
