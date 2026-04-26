@@ -207,10 +207,10 @@ def run_query(
 
     log(f"[query_engine] Querying index for top {top_k} snippets...")
 
-    # Get extra results so we have room to boost docs and still return top_k
+    # Fetch more candidates so deduplication still yields top_k results
     res = collection.query(
         query_embeddings=[q_embedding],
-        n_results=top_k * 2,
+        n_results=top_k * 3,
         include=["documents", "metadatas", "distances"],
     )
 
@@ -222,29 +222,21 @@ def run_query(
         log("[query_engine] No relevant snippets found in the index.")
         raise RuntimeError("No relevant snippets found in the index.")
 
-    docs = docs_list[0]
-    metas = metas_list[0]
-    dists = dist_list[0]
-    
-    # Always boost documentation files to ensure they compete with code
-    # Documentation often has more natural language that matches queries better
-    adjusted_results = []
-    for doc, meta, dist in zip(docs, metas, dists):
+    # Deduplicate by source file — keep only the best-scoring chunk per file.
+    # This prevents one large file from flooding all top-k slots.
+    seen_sources: set[str] = set()
+    deduped: list[tuple] = []
+    for doc, meta, dist in zip(docs_list[0], metas_list[0], dist_list[0]):
         source = meta.get("source", "")
-        # Give docs a slight boost by reducing their distance
-        if source.endswith(('.md', '.txt', '.rst', '.adoc')):
-            boosted_dist = dist * 0.75  # Make docs appear 25% closer
-            adjusted_results.append((doc, meta, boosted_dist))
-        else:
-            adjusted_results.append((doc, meta, dist))
-    
-    # Sort by adjusted distance and take top_k
-    adjusted_results.sort(key=lambda x: x[2])
-    adjusted_results = adjusted_results[:top_k]
-    
-    docs = [r[0] for r in adjusted_results]
-    metas = [r[1] for r in adjusted_results]
-    dists = [r[2] for r in adjusted_results]
+        if source not in seen_sources:
+            seen_sources.add(source)
+            deduped.append((doc, meta, dist))
+        if len(deduped) == top_k:
+            break
+
+    docs  = [r[0] for r in deduped]
+    metas = [r[1] for r in deduped]
+    dists = [r[2] for r in deduped]
 
     scores = _compute_relative_scores(dists)
 
