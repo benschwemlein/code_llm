@@ -15,8 +15,8 @@ APP_TITLE = env("LCQ_APP_TITLE", "Local Code Query")
 
 # Ollama configuration (these will be edited by the Settings tab)
 OLLAMA_URL = env("LCQ_OLLAMA_URL", "http://localhost:11434")
-EMBED_MODEL = env("LCQ_EMBED_MODEL", "nomic-embed-text")
-CHAT_MODEL = env("LCQ_CHAT_MODEL", "llama3.1")
+EMBED_MODEL = env("LCQ_EMBED_MODEL", "mxbai-embed-large")
+CHAT_MODEL = env("LCQ_CHAT_MODEL", "qwen2.5:7b")
 
 # Index storage
 DEFAULT_INDEX_DIR = env(
