@@ -13,6 +13,23 @@ from ollama_manager.download_manager import DownloadManager, PullProgress
 # Curated metadata for common models.
 # We match by base name before ":" tag (example: "llama3.1:8b" -> "llama3.1").
 MODEL_INFO = {
+    # -----------------------------------------------------------------------
+    # Zack Lowery's picks — June 2026
+    # Source: https://blog.leadingedje.com/post/current-local-llm-favorites.html
+    # -----------------------------------------------------------------------
+    "glm-4.7-flash": (
+        "Zhipu AI (THUDM)",
+        "Zack Lowery's top pick for agentic workflows. MoE 30B/3B active — chains 50+ tool calls reliably. 198K context. (~19 GB q4_K_M)",
+    ),
+    "qwen3.6": (
+        "Alibaba Cloud",
+        "Zack Lowery's top pick for software development. Dense 27B handles complex data structures; 35B-A3B variant adds vision and tackles complex OOP. 256K context.",
+    ),
+    "gemma4": (
+        "Google",
+        "Zack Lowery recommendation for general development. 12b runs on a single consumer GPU (12-16 GB VRAM). 12b-it-qat offers improved quantization via QAT. 256K context.",
+    ),
+
     # Embeddings
     "nomic-embed-text": (
         "Nomic AI",
@@ -78,6 +95,18 @@ MODEL_INFO = {
 }
 
 SUGGESTED_PULL_MODELS = [
+    # -----------------------------------------------------------------------
+    # Zack Lowery's picks — Leading Edje, June 2026
+    # https://blog.leadingedje.com/post/current-local-llm-favorites.html
+    # -----------------------------------------------------------------------
+    "glm-4.7-flash:latest",        # MoE 30B/3B active — top agentic pick (19 GB)
+    "qwen3.6:27b",                  # Dense 27B — top code/dev pick (17 GB)
+    "qwen3.6:35b-a3b",              # MoE 35B/3B active — complex OOP + vision (24 GB)
+    "gemma4:12b",                   # Dense 12B — single consumer GPU pick (7.6 GB)
+    "gemma4:12b-it-qat",            # Dense 12B QAT — better quantization quality (7.2 GB)
+    "gemma4:26b",                   # MoE 26B/4B active — general dev (18 GB)
+    "gemma4:31b",                   # Dense 31B — general dev tasks (20 GB)
+
     # Embeddings
     "nomic-embed-text",
     "mxbai-embed-large",
