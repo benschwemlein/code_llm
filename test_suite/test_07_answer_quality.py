@@ -36,179 +36,201 @@ from test_04_semantic_eval import GROUND_TRUTH
 @dataclass
 class ReferenceCase:
     name: str
-    # Key technical terms the answer MUST contain (subset of what's in reference)
     must_contain: list[str]
-    # Full reference answer for keyword-overlap scoring
     reference: str
 
 
 REFERENCE_CASES: list[ReferenceCase] = [
     ReferenceCase(
         name="jwt_authentication",
-        must_contain=["JwtTokenFilter", "JwtTokenService"],
+        must_contain=["JwtService", "JwtAuthenticationFilter"],
         reference="""
-JWT authentication uses a filter-based approach. JwtTokenFilter extends GenericFilterBean
-and intercepts every HTTP request, extracting the Bearer token from the Authorization header.
-It delegates to JwtTokenService.validateToken() to verify the HMAC-SHA256 signature using
-a Base64-encoded secret key injected from configuration. JwtTokenService also maintains a
-thread-safe list of revoked tokens (loggedOutUsers) populated via updateLoggedOutUsers().
-If the token is valid and not revoked, getAuthentication() constructs a Spring Authentication
-object and sets it in the SecurityContext. The token payload contains the username, UUID,
-assigned roles, and a last-message timestamp. Tokens expire after 24 hours by default
-(validityInMilliseconds). Token creation uses the JJWT library with HMAC-SHA256 signing.
-WebSecurityConfig registers JwtTokenFilter in the Spring Security filter chain.
-MyAuthenticationProvider handles credential validation at login time.
+JWT authentication uses two classes. JwtService handles token generation and validation:
+generateToken(UserDetails) creates a signed HMAC-SHA256 JWT using a Base64-encoded secret key
+from application.security.jwt.secret-key. buildToken() sets the subject (username), issuedAt,
+and expiration, then signs with HS256 via JJWT. isTokenValid() checks the username matches
+and the token is not expired. extractAllClaims() parses the token using Jwts.parserBuilder
+with getSignInKey(). generateRefreshToken() creates a longer-lived token using refreshExpiration.
+JwtAuthenticationFilter extends OncePerRequestFilter and intercepts every HTTP request:
+it extracts the Bearer token from the Authorization header, calls jwtService.extractUsername()
+to get the user email, loads UserDetails via UserDetailsService, then queries TokenRepository
+to verify the token is neither expired nor revoked (findByToken().map(!expired && !revoked)).
+If valid, it sets a UsernamePasswordAuthenticationToken in SecurityContextHolder.
+Requests to /api/v1/auth/** bypass the filter entirely. Token entities persist issued JWTs
+with expired and revoked boolean flags for blacklist enforcement.
 """,
     ),
     ReferenceCase(
-        name="kafka_events",
-        must_contain=["EventProducer", "EventConsumer"],
+        name="checkout_borrow",
+        must_contain=["BorrowController", "CheckoutService"],
         reference="""
-The application uses Reactor Kafka (reactive Kafka) for event streaming, configured in
-KafkaConfig annotated with @Profile("kafka | prod"). KafkaConfig defines topic beans:
-NEW_USER_TOPIC for new user signup events and USER_LOGOUT_SOURCE_TOPIC / USER_LOGOUT_SINK_TOPIC
-for logout events, plus dead-letter topics for retry handling. Idempotent producers are enabled
-with optional gzip/zstd compression. EventProducer implements MyEventProducer and sends events:
-sendNewUser() publishes a MyUser object as JSON to NEW_USER_TOPIC using the user's salt as the
-Kafka message key, and sendUserLogout() publishes a RevokedToken to USER_LOGOUT_SOURCE_TOPIC
-with the username as key. Both methods return Mono for reactive composition. EventConsumer
-subscribes on startup via @EventListener(ApplicationReadyEvent) and processes incoming messages:
-new user events call myUserServiceEvents.userSigninEvent() and logout events call
-myUserServiceEvents.logoutEvent(). Both subscriptions use fixedDelay retry up to Long.MAX_VALUE
-with a 1-minute interval to recover from failures. KafkaStreams handles stream processing.
+Catalog item checkout and return is handled by BorrowController (@RestController, /catalog/borrow)
+and CheckoutService. BorrowController exposes: GET /catalog/borrow lists all checkouts as
+CheckoutDTO, GET /catalog/borrow/item/{itemId} lists checkouts for an item,
+GET /catalog/borrow/{id} gets one checkout, PUT /catalog/borrow/checkout checks out an item,
+PUT /catalog/borrow/checkin checks it back in. Both PUT endpoints accept CheckInOutRequestDTO
+(userEmail, itemId) and look up the User via UserService.getUserByEmail().
+CheckoutService.checkout(catalogItemId, userId) checks for an existing active Checkout
+(checkedOut=true) via findByItemId(); if none exists, creates a new Checkout with
+checkedOut=true and checkoutDateTime=LocalDateTime.now(). Returns null if already checked out.
+CheckoutService.checkin(catalogItemId, userId) finds the active checkout, sets checkedOut=false
+and checkinDateTime=now(), then saves. The Checkout entity has itemId, item (CatalogItem),
+checkedOut boolean, checkoutDateTime, checkinDateTime, checkedoutById, and checkedoutBy (User).
+ModelMapper with STRICT matching maps entities to CheckoutDTO.
 """,
     ),
     ReferenceCase(
-        name="mongodb_configuration",
-        must_contain=["MongoDbConfiguration", "AbstractReactiveMongoConfiguration", "traderdb", "reactiveMongoClient"],
+        name="catalog_item_crud",
+        must_contain=["CatalogItemController", "CatalogItemService"],
         reference="""
-MongoDB is configured via MongoDbConfiguration which extends AbstractReactiveMongoConfiguration
-and is annotated with @EnableReactiveMongoRepositories. The getDatabaseName() method returns
-"traderdb" as the database name. The reactiveMongoClient() method creates a reactive MongoClient
-connecting to mongodb://localhost/traderdb. SpringMongoConfig provides additional Spring Data
-MongoDB configuration. MongoDbClient is the main Spring Boot application class annotated with
-@SpringBootApplication and @EnableScheduling. MongoUtils provides common utility methods for
-MongoDB operations. The application uses reactive streams (Project Reactor) throughout, with all
-repository operations returning Mono or Flux rather than blocking calls.
+Catalog item management is provided by CatalogItemController (@RestController, /catalog/catalog-items)
+backed by CatalogItemService. The controller exposes full CRUD: POST creates from CatalogItemRequestDTO,
+GET /catalog/catalog-items lists all items as CatalogItemResponseDTO with nested Checkout data
+(convertToCatalogItemResponseDTO maps the first Checkout to CatalogItemCheckoutRepsonseDTO),
+GET /catalog/catalog-items/{id} retrieves one item, PUT updates, DELETE removes.
+MappingUtils.mapCatalogIds() populates catalogIds on the response DTOs.
+CatalogItemService wraps CatalogItemRepository (Spring Data JPA) for all persistence operations.
+The CatalogItem entity has: id, title, description, createdDateTime (@CreationTimestamp),
+createdBy (User, ManyToOne), catalogIds (List<CatalogId> via @ManyToMany join table
+catalog_item_catalog_id with @Cascade(ALL)), and checkouts (Set<Checkout>, OneToMany).
+ModelMapper with STRICT matching strategy handles DTO-entity conversion throughout.
+""",
+    ),
+    ReferenceCase(
+        name="user_registration",
+        must_contain=["AuthenticationService", "AuthenticationController"],
+        reference="""
+User registration is handled by AuthenticationController (POST /api/v1/auth/register) which
+delegates to AuthenticationService.register(RegisterRequest). The service builds a User from
+RegisterRequest fields (firstname, lastname, email, password, role), BCrypt-encodes the password
+via PasswordEncoder, saves via UserRepository, then generates both an access token
+(jwtService.generateToken()) and a refresh token (jwtService.generateRefreshToken()). The access
+token is saved to TokenRepository via saveUserToken() as a Token entity with tokenType=BEARER,
+expired=false, revoked=false. Returns AuthenticationResponse with accessToken and refreshToken.
+AuthenticationController also exposes POST /api/v1/auth/authenticate (login): credentials are
+validated via AuthenticationManager, all prior tokens are revoked via revokeAllUserTokens(),
+new tokens are generated and saved, and the response includes accessToken, refreshToken,
+firstName, lastName, email. POST /api/v1/auth/refresh-token verifies the Bearer refresh token
+via jwtService.isTokenValid(), revokes old tokens, and issues a fresh access token.
+A TODO notes that ADMIN/MANAGER users should not be self-registerable via this endpoint.
+""",
+    ),
+    ReferenceCase(
+        name="spring_security",
+        must_contain=["SecurityConfiguration"],
+        reference="""
+Spring Security is configured in SecurityConfiguration (@Configuration, @EnableWebSecurity,
+@EnableMethodSecurity). WHITE_LIST_URL permits unauthenticated access to /api/v1/auth/**,
+/v2/api-docs, /v3/api-docs/**, /swagger-resources/**, /configuration/**, /swagger-ui/**,
+/webjars/**, and /swagger-ui.html. The /catalog/** path requires any of ROLE_ADMIN, ROLE_MANAGER,
+or ROLE_USER; per-method permission checks enforce *_READ on GET/POST/PUT and *_READ on DELETE.
+The /api/v1/management/** path requires ROLE_ADMIN or ROLE_MANAGER with method-level permission
+checks (*_READ on GET, *_CREATE on POST, *_UPDATE on PUT, *_DELETE on DELETE). All other requests
+require authentication. Sessions are STATELESS. JwtAuthenticationFilter is added before
+UsernamePasswordAuthenticationFilter. Logout is registered at /api/v1/auth/logout with
+LogoutService as the LogoutHandler. ApplicationConfig provides UserDetailsService (loads by email),
+DaoAuthenticationProvider, BCryptPasswordEncoder, AuditorAware, and CORS configuration allowing
+all methods from http://localhost:4200 on /api/** and /catalog/**.
+""",
+    ),
+    ReferenceCase(
+        name="role_permissions",
+        must_contain=["Role", "Permission"],
+        reference="""
+The Role enum defines three roles: USER, ADMIN, and MANAGER. Each holds a Set<Permission> and
+a getAuthorities() method that maps permissions to List<SimpleGrantedAuthority> then appends
+ROLE_<name> (e.g. ROLE_ADMIN). USER has USER_READ, USER_CREATE, USER_UPDATE, USER_DELETE.
+MANAGER has MANAGER_READ, MANAGER_UPDATE, MANAGER_DELETE, MANAGER_CREATE. ADMIN has all
+ADMIN_ permissions plus all MANAGER_ and USER_ permissions — a strict superset.
+The Permission enum defines string permission values (e.g. admin:read, manager:create,
+user:delete) accessed via getPermission(); each maps to a SimpleGrantedAuthority.
+User stores role as VARCHAR(50) via @Enumerated(EnumType.STRING). User.getAuthorities()
+delegates to role.getAuthorities() returning the full permission list. SecurityConfiguration
+uses hasAnyRole() for coarse access and hasAnyAuthority() for fine-grained method-level
+access on /catalog/** and /api/v1/management/** endpoints.
+""",
+    ),
+    ReferenceCase(
+        name="token_revocation",
+        must_contain=["LogoutService", "TokenRepository"],
+        reference="""
+JWT revocation is handled by LogoutService which implements Spring Security's LogoutHandler.
+On logout (POST /api/v1/auth/logout), logout() extracts the Bearer token from the Authorization
+header, looks it up via TokenRepository.findByToken(), and if found sets expired=true and
+revoked=true on the Token entity, saves it, then calls SecurityContextHolder.clearContext().
+JwtAuthenticationFilter enforces revocation on every request: after validating the JWT signature,
+it queries TokenRepository.findByToken().map(t -> !t.isExpired() && !t.isRevoked()) to confirm
+the token is still valid in the database. AuthenticationService.revokeAllUserTokens(user) is
+also called on each fresh login to invalidate prior sessions: findAllValidTokenByUser(userId)
+fetches all non-expired, non-revoked tokens, sets expired=true and revoked=true on all, and saves.
+This enforces single-session semantics — a new login from any device revokes all prior tokens.
+The Token entity has: token (unique String), tokenType (BEARER via TokenType enum), revoked
+boolean, expired boolean, and a ManyToOne @FetchType.LAZY relationship to User.
+""",
+    ),
+    ReferenceCase(
+        name="catalog_identifiers",
+        must_contain=["CatalogIdType", "CatalogId"],
+        reference="""
+Catalog identifier types (e.g. ISBN, BARCODE) are managed via CatalogIdTypeController
+(@RestController, /catalog/catalog-id-types) backed by CatalogIdTypeService and
+CatalogIdTypeRepository. CatalogIdType defines the identifier type name and supports full CRUD.
+CatalogId represents a specific identifier value linked to a CatalogIdType.
+CatalogItem holds a List<CatalogId> via @ManyToMany with join table catalog_item_catalog_id;
+@Cascade(ALL) ensures identifiers are created and deleted with the item.
+CatalogIdRepository provides persistence for individual CatalogId records.
+CatalogIdDTO and CatalogIdTypeDTO are the transfer objects. MappingUtils.mapCatalogIds()
+populates the catalogIds field on CatalogItemResponseDTO when listing all items.
+ModelMapperConfig in the config package was intended to handle CatalogId-to-DTO mapping
+but currently contains commented-out configuration.
 """,
     ),
     ReferenceCase(
         name="user_management",
-        must_contain=["MyUser"],
+        must_contain=["UserController", "UserService"],
         reference="""
-User management is handled by MyUserController (@RestController, base path /myuser) which
-exposes five endpoints: POST /myuser/signin creates a new account via postUserSignin(),
-POST /myuser/login authenticates an existing user via postUserLogin() and returns a JWT token,
-POST /myuser/authorize checks authorization via postAuthorize(), PUT /myuser/logout revokes the
-current token via postLogout() (requires Authorization header), and GET /myuser/refreshToken
-issues a new token via getRefreshToken(). All methods return Mono for reactive composition and
-delegate to MyUserServiceBean. The MyUser entity holds user credentials and profile data.
-MyUserService defines the service interface. The Angular frontend uses login.component.ts
-for the login UI and myuser.service.ts to call the backend /myuser endpoints via HTTP.
+User retrieval is provided by UserController (@RestController, /users). Two read-only endpoints:
+GET /users returns all users as List<UserDTO> via userService.getAllUsers(), and GET /users/{id}
+returns one user by id as UserDTO via userService.getUserById(). Both map User entities to UserDTO
+via ModelMapper with STRICT matching. UserService provides getAllUsers() (UserRepository.findAll()),
+getUserById(Long id) (throws RuntimeException if not found), and getUserByEmail(String email)
+called by BorrowController to look up users during checkout and checkin by email address.
+UserRepository extends JpaRepository<User, Long> and provides findByEmail(String) returning
+Optional<User>; also used by UserDetailsService in ApplicationConfig for Spring Security login.
+The User entity implements UserDetails: username maps to email, getAuthorities() delegates to
+role.getAuthorities(), all isAccountNon*() methods return true (no locking logic).
+UserDTO exposes safe fields for API responses without the password.
 """,
     ),
     ReferenceCase(
-        name="scheduled_tasks",
-        must_contain=["ScheduledTask"],
+        name="angular_auth",
+        must_contain=["AuthService"],
         reference="""
-Background work is done by ScheduledTask (@Component) which polls four crypto exchanges on
-fixed schedules: Bitstamp quotes for BTC, ETH, LTC, and XRP are fetched every 60 seconds
-with staggered start times using @Scheduled(fixedDelay). Coinbase exchange rates, Bitfinex
-quotes (BTCUSD, ETHUSD, LTCUSD, XRPUSD), and Paxos/Itbit USD quotes are similarly scheduled.
-updateLoggedOutUsers() runs every 90 seconds to refresh the revoked token list in JwtTokenService.
-Each task is annotated @Async("clientTaskExecutor") for non-blocking execution and @SchedulerLock
-for distributed locking to prevent duplicate execution across multiple instances. HTTP calls use
-WebClient with a 5-second timeout; MongoDB writes use a 6-second timeout. BigDecimal values are
-limited to 30 digits of precision. PrepareDataTask handles data preparation tasks and TaskStarter
-manages task initialization. SchedulingConfig configures the scheduling infrastructure.
-""",
-    ),
-    ReferenceCase(
-        name="angular_routing",
-        must_contain=["overview", "orderbooks", "AuthGuardService"],
-        reference="""
-Angular client-side routing is configured in app-routing.ts using lazy-loaded routes.
-The /overview path loads overview.routes lazily, /details loads details.routes lazily,
-/statistics loads statistics.routes lazily, and /orderbooks loads orderbooks.routes lazily
-but is protected by AuthGuardService (requires authentication). The wildcard route ** maps
-to SplashComponent which serves as the default landing page and 404 handler. Each feature
-area has its own routes file: details.routes.ts, overview.routes.ts, statistics.routes.ts,
-and orderbooks.routes.ts define the child routes within their respective lazy modules.
-""",
-    ),
-    ReferenceCase(
-        name="statistics",
-        must_contain=["StatisticService"],
-        reference="""
-Trading statistics are calculated by StatisticService (@Service) which computes metrics
-over multiple timeframes (1 month, 3 months, 6 months, 1 year, 2 years, 5 years).
-The main entry point is getCommonStatistics(StatisticsCurrPair, CoinExchange) which returns
-a Mono<CommonStatisticsDto>. It calculates four metric types: performance (percentage price
-change over the period), range (min/max price via getMinMaxValue()), average volume
-(calcAvgVolume()), and volatility (standard deviation via calcVolatility()). Data is fetched
-from MongoDB via myMongoRepository and filtered by date range. Periods with fewer than 3
-quotes are handled gracefully. StatisticsController exposes the REST API for these metrics.
-The Angular frontend uses statistics.component.ts, statistic-details.component.ts, and
-statistic.service.ts to fetch and display the statistics data.
-""",
-    ),
-    ReferenceCase(
-        name="exception_handling",
-        must_contain=["GlobalExceptionHandler", "AuthenticationException"],
-        reference="""
-Exceptions are handled globally by GlobalExceptionHandler which extends
-ResponseEntityExceptionHandler and is annotated @RestControllerAdvice. The handleException()
-method catches MongoTimeoutException and TimeoutException, returning HTTP 400 BAD_REQUEST
-and logging the exception message, remote IP address, and request URL. The
-handleAuthenticationException() method catches AuthenticationException (the domain-level
-custom exception) and also returns HTTP 400. ExceptionLoggingFilter is a servlet filter that
-logs exceptions before they reach the global handler. The domain layer defines two custom
-exception types: AuthenticationException for authentication failures and
-JwtTokenValidationException for JWT token validation errors. These are thrown by the service
-layer and caught by GlobalExceptionHandler to produce consistent error responses.
-""",
-    ),
-    ReferenceCase(
-        name="quote_data_model",
-        must_contain=["MongoDB"],
-        reference="""
-Cryptocurrency price quotes are stored as MongoDB documents. QuoteBf implements the Quote
-interface and represents Bitfinex quotes with fields: _id (ObjectId MongoDB ID), pair (String,
-@NotBlank, @Indexed — currency pair like "btcusd"), createdAt (Date, @NotNull, @Indexed —
-insertion timestamp), mid, bid, ask, last_price, low, high, volume (all BigDecimal — price data),
-and timestamp (String — exchange timestamp). The @Document annotation marks it as a MongoDB
-collection. Fields use @JsonProperty for JSON deserialization. Similarly QuoteBs holds Bitstamp
-quotes, QuoteCb holds Coinbase quotes, and QuoteIb holds Itbit/Paxos quotes. All implement the
-common Quote interface. Indexes are defined on pair and createdAt for query performance.
-BigDecimal is used throughout for price precision.
-""",
-    ),
-    ReferenceCase(
-        name="angular_exchange_services",
-        must_contain=["BitfinexService"],
-        reference="""
-The Angular frontend communicates with backend exchange APIs through dedicated injectable
-services. BitfinexService provides methods returning Observables: getCurrentQuote(currencypair)
-calls GET /bitfinex/{pair}/current, getTodayQuotes() calls GET /bitfinex/{pair}/today,
-get7DayQuotes(), get30DayQuotes(), get90DayQuotes(), get6MonthsQuotes(), and get1YearQuotes()
-fetch historical data for respective periods, and getOrderbook(currencypair) calls
-GET /bitfinex/{pair}/orderbook with an Authorization token header. Currency pair constants
-BTCUSD, ETHUSD, LTCUSD, XRPUSD are defined in the service. All services use Angular HttpClient,
-set JSON content-type, and catch errors via Utils.handleError. BitstampService, CoinbaseService,
-and ItbitService follow the same pattern for their respective exchanges.
+The Angular frontend manages authentication via AuthService (Injectable). On login, the service
+calls POST /api/v1/auth/authenticate with email and password and stores the returned accessToken
+in localStorage. The JWT payload is base64-decoded to extract user fields (firstName, lastName,
+email, roles). A BehaviorSubject<UserInfo | null> named currentUser$ holds the active session
+state; components subscribe via the currentUser observable to react to login and logout.
+logout() removes the token from localStorage and sets currentUser$ to null.
+login.component.ts provides a reactive FormGroup with email and password controls, submits to
+authService.login(), and navigates on success. app.component.ts subscribes to currentUser$ to
+set isLoggedIn, isAdmin, isStaff, firstName, lastName flags. isAdmin checks roles.includes('ADMIN');
+isStaff checks for ADMIN or MANAGER. These flags drive conditional rendering of nav links and
+the user chip with avatar initials and a Log Out button that calls authService.logout().
+Role-based nav links (Staff, Admin) are shown only when isStaff or isAdmin are true.
 """,
     ),
 ]
 
 REFERENCE_BY_NAME = {r.name: r for r in REFERENCE_CASES}
 
-FAITHFULNESS_THRESHOLD = 0.20
+FAITHFULNESS_THRESHOLD      = 0.20
 REFERENCE_OVERLAP_THRESHOLD = 0.20
 
 # Queries where llama3.1 consistently paraphrases without citing class names.
 # Marked xfail — these represent known model quality gaps, not test bugs.
 # They will flip to xpass if a better model is used.
-WEAK_QUERIES = {"scheduled_tasks", "statistics"}
+WEAK_QUERIES = {"angular_auth", "catalog_identifiers"}
 
 
 # ---------------------------------------------------------------------------
@@ -223,15 +245,13 @@ def _tokenize(text: str) -> set[str]:
 def faithfulness_score(answer: str, retrieved_metas: list[dict]) -> float:
     """
     Fraction of class names (derived from retrieved source file paths) that appear
-    in the answer.  Uses file paths rather than raw chunk text to avoid extracting
-    thousands of trivial camelCase tokens from Java/TypeScript source code.
+    in the answer. Detects hallucination: model inventing classes not in context.
 
-    e.g. "adapter/config/JwtTokenFilter.java" -> "JwtTokenFilter"
+    e.g. "jwt/JwtService.java" -> "JwtService"
     """
     class_names = set()
     for meta in retrieved_metas:
         source = meta.get("source", "")
-        # Last path segment without extension
         basename = source.split("/")[-1]
         stem = basename.rsplit(".", 1)[0] if "." in basename else basename
         if len(stem) >= 4:
@@ -246,9 +266,7 @@ def faithfulness_score(answer: str, retrieved_metas: list[dict]) -> float:
 
 
 def reference_overlap_score(answer: str, reference: str) -> float:
-    """
-    Fraction of reference keywords that appear in the answer.
-    """
+    """Fraction of reference keywords that appear in the answer."""
     ref_tokens = _tokenize(reference)
     if not ref_tokens:
         return 1.0
@@ -263,10 +281,7 @@ def reference_overlap_score(answer: str, reference: str) -> float:
 
 @pytest.fixture(scope="session")
 def answer_results(indexed_app) -> dict:
-    """
-    Run each ground-truth query through the full RAG pipeline and cache
-    the answer + retrieved docs.
-    """
+    """Run each ground-truth query through the full RAG pipeline and cache results."""
     from querying.query_engine import run_query
 
     results = {}
@@ -279,8 +294,8 @@ def answer_results(indexed_app) -> dict:
         )
         results[case.name] = {
             "answer": result.get("answer", ""),
-            "docs": result.get("docs", []),
-            "metas": result.get("metas", []),
+            "docs":   result.get("docs",   []),
+            "metas":  result.get("metas",  []),
         }
     return results
 
@@ -307,7 +322,7 @@ def test_faithfulness(case, answer_results, request):
 
 @pytest.mark.parametrize("case", GROUND_TRUTH, ids=[c.name for c in GROUND_TRUTH])
 def test_must_contain_keywords(case, answer_results, request):
-    """Answer must contain specific key class/method names for each query."""
+    """Answer must contain specific key class names for each query."""
     if case.name in WEAK_QUERIES:
         request.node.add_marker(pytest.mark.xfail(
             reason=f"{case.name}: llama3.1 paraphrases without citing class names",
@@ -351,23 +366,23 @@ def test_answer_quality_report(answer_results):
     print("-" * 64)
 
     for case in GROUND_TRUTH:
-        r = answer_results[case.name]
+        r   = answer_results[case.name]
         ref = REFERENCE_BY_NAME.get(case.name)
 
         faith = faithfulness_score(r["answer"], r["metas"])
 
         if ref:
             answer_lower = r["answer"].lower()
-            missing = [kw for kw in ref.must_contain if kw.lower() not in answer_lower]
-            kw_pass = "PASS" if not missing else f"FAIL({len(missing)})"
-            ovlp = reference_overlap_score(r["answer"], ref.reference)
+            missing  = [kw for kw in ref.must_contain if kw.lower() not in answer_lower]
+            kw_pass  = "PASS" if not missing else f"FAIL({len(missing)})"
+            ovlp     = reference_overlap_score(r["answer"], ref.reference)
         else:
             kw_pass = "N/A"
-            ovlp = 0.0
+            ovlp    = 0.0
 
         print(f"  {case.name:<28} {faith:>10.2f} {kw_pass:>10} {ovlp:>10.2f}")
 
     print("-" * 64)
-    print(f"\n  Faithfulness threshold : >= {FAITHFULNESS_THRESHOLD}")
+    print(f"\n  Faithfulness threshold     : >= {FAITHFULNESS_THRESHOLD}")
     print(f"  Reference overlap threshold: >= {REFERENCE_OVERLAP_THRESHOLD}\n")
     print("=" * 40)
