@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 
 
 # ---------------------------------------------------------------------------
-# Ground truth cases — queries grounded in library-catalog-app source
+# Ground truth cases — queries grounded in com.example.library source
 # ---------------------------------------------------------------------------
 
 @dataclass
@@ -27,127 +27,135 @@ class GroundTruthCase:
 
 GROUND_TRUTH: list[GroundTruthCase] = [
     GroundTruthCase(
-        name="jwt_authentication",
+        name="loan_checkout_validation",
         question=(
-            "How is JWT authentication implemented? "
-            "Where is the token validated and how is revocation handled?"
+            "How does book checkout work? What validations are performed before "
+            "a loan is created and what happens if a member has unpaid fines or "
+            "too many active loans?"
         ),
         expected_files=[
-            "src/main/java/com/example/catalog/jwt/JwtService.java",
-            "src/main/java/com/example/catalog/jwt/JwtAuthenticationFilter.java",
-            "src/main/java/com/example/catalog/model/Token.java",
-            "src/main/java/com/example/catalog/repo/TokenRepository.java",
+            "src/main/java/com/example/library/service/LoanService.java",
+            "src/main/java/com/example/library/controller/LoanController.java",
+            "src/main/java/com/example/library/exception/CheckoutValidationException.java",
+            "src/main/java/com/example/library/exception/MembershipExpiredException.java",
         ],
     ),
     GroundTruthCase(
-        name="checkout_borrow",
+        name="loan_eligibility_chain",
         question=(
-            "How does a user check out and return a catalog item? "
-            "Where is the borrow and checkin logic?"
+            "How is the Chain of Responsibility pattern used to check loan eligibility? "
+            "What handlers are in the chain and in what order do they run?"
         ),
         expected_files=[
-            "src/main/java/com/example/catalog/controller/BorrowController.java",
-            "src/main/java/com/example/catalog/service/CheckoutService.java",
-            "src/main/java/com/example/catalog/model/Checkout.java",
+            "src/main/java/com/example/library/pattern/chain/LoanEligibilityChain.java",
+            "src/main/java/com/example/library/pattern/chain/MaxLoansHandler.java",
+            "src/main/java/com/example/library/pattern/chain/UnpaidFinesHandler.java",
+            "src/main/java/com/example/library/pattern/chain/MembershipActiveHandler.java",
+            "src/main/java/com/example/library/pattern/chain/CopyAvailableHandler.java",
         ],
     ),
     GroundTruthCase(
-        name="catalog_item_crud",
+        name="fine_calculation_strategy",
         question=(
-            "Where is catalog item data managed? "
-            "How are items created, updated, and retrieved through the API?"
+            "How are overdue fines calculated? How does the fine amount differ by "
+            "membership tier and is there a grace period for any member type?"
         ),
         expected_files=[
-            "src/main/java/com/example/catalog/controller/CatalogItemController.java",
-            "src/main/java/com/example/catalog/service/CatalogItemService.java",
-            "src/main/java/com/example/catalog/model/CatalogItem.java",
+            "src/main/java/com/example/library/pattern/strategy/FineCalculationStrategy.java",
+            "src/main/java/com/example/library/pattern/strategy/StandardFineStrategy.java",
+            "src/main/java/com/example/library/pattern/strategy/PremiumFineStrategy.java",
+            "src/main/java/com/example/library/pattern/strategy/StudentFineStrategy.java",
+            "src/main/java/com/example/library/pattern/strategy/OverdueFineContext.java",
         ],
     ),
     GroundTruthCase(
-        name="user_registration",
+        name="hold_state_machine",
         question=(
-            "How does user registration work? "
-            "Where is the register endpoint and what user data is persisted?"
+            "How are holds managed through state transitions? What states can a hold be in "
+            "and how does the state machine determine which transitions are valid?"
         ),
         expected_files=[
-            "src/main/java/com/example/catalog/controller/AuthenticationController.java",
-            "src/main/java/com/example/catalog/service/AuthenticationService.java",
-            "src/main/java/com/example/catalog/dto/RegisterRequest.java",
-            "src/main/java/com/example/catalog/model/User.java",
+            "src/main/java/com/example/library/pattern/state/HoldStateMachine.java",
+            "src/main/java/com/example/library/pattern/state/HoldContext.java",
+            "src/main/java/com/example/library/pattern/state/PendingHoldState.java",
+            "src/main/java/com/example/library/pattern/state/ReadyHoldState.java",
+            "src/main/java/com/example/library/service/HoldService.java",
         ],
     ),
     GroundTruthCase(
-        name="spring_security",
+        name="recommendation_engine",
         question=(
-            "How is Spring Security configured? "
-            "Which endpoints are publicly accessible versus require authentication?"
+            "How does the book recommendation system work? What algorithms are used "
+            "and how are recommendations cached to avoid repeated computation?"
         ),
         expected_files=[
-            "src/main/java/com/example/catalog/config/SecurityConfiguration.java",
-            "src/main/java/com/example/catalog/config/ApplicationConfig.java",
-            "src/main/java/com/example/catalog/jwt/JwtAuthenticationFilter.java",
+            "src/main/java/com/example/library/recommendation/RecommendationEngine.java",
+            "src/main/java/com/example/library/recommendation/HybridRecommendationService.java",
+            "src/main/java/com/example/library/recommendation/CollaborativeFilteringService.java",
+            "src/main/java/com/example/library/recommendation/RecommendationCache.java",
         ],
     ),
     GroundTruthCase(
-        name="role_permissions",
+        name="overdue_batch_processing",
         question=(
-            "How are user roles and permissions defined? "
-            "What authorities does each role grant?"
+            "How are overdue loans detected and processed in batch? How are fines issued "
+            "and members notified, and what scheduled job triggers the process?"
         ),
         expected_files=[
-            "src/main/java/com/example/catalog/model/Role.java",
-            "src/main/java/com/example/catalog/model/Permission.java",
+            "src/main/java/com/example/library/batch/OverdueBatchProcessor.java",
+            "src/main/java/com/example/library/batch/BatchJobService.java",
+            "src/main/java/com/example/library/scheduler/OverdueLoanScheduler.java",
         ],
     ),
     GroundTruthCase(
-        name="token_revocation",
+        name="full_text_search",
         question=(
-            "How are JWT tokens revoked when a user logs out? "
-            "How does the system know a token is no longer valid?"
+            "How does the library's full-text search work? How is the search index built "
+            "and how are results ranked and paginated?"
         ),
         expected_files=[
-            "src/main/java/com/example/catalog/service/LogoutService.java",
-            "src/main/java/com/example/catalog/service/AuthenticationService.java",
-            "src/main/java/com/example/catalog/model/Token.java",
-            "src/main/java/com/example/catalog/repo/TokenRepository.java",
+            "src/main/java/com/example/library/search/FullTextSearchService.java",
+            "src/main/java/com/example/library/search/SearchIndexService.java",
+            "src/main/java/com/example/library/search/SearchController.java",
+            "src/main/java/com/example/library/search/SearchIndexingEventListener.java",
         ],
     ),
     GroundTruthCase(
-        name="catalog_identifiers",
+        name="notification_events",
         question=(
-            "How are catalog item identifiers like ISBN or barcodes stored and "
-            "associated with catalog items?"
+            "How do library domain events trigger member notifications? "
+            "Which events send notifications and how are they dispatched asynchronously?"
         ),
         expected_files=[
-            "src/main/java/com/example/catalog/model/CatalogId.java",
-            "src/main/java/com/example/catalog/model/CatalogIdType.java",
-            "src/main/java/com/example/catalog/controller/CatalogIdTypeController.java",
-            "src/main/java/com/example/catalog/service/CatalogIdTypeService.java",
+            "src/main/java/com/example/library/pattern/observer/NotificationEventListener.java",
+            "src/main/java/com/example/library/pattern/observer/HoldReadyEvent.java",
+            "src/main/java/com/example/library/pattern/observer/BookCheckedOutEvent.java",
+            "src/main/java/com/example/library/service/NotificationService.java",
         ],
     ),
     GroundTruthCase(
-        name="user_management",
+        name="circulation_rules",
         question=(
-            "How are users retrieved and managed through the API? "
-            "What user data is exposed in responses?"
+            "How are circulation rules applied to determine loan periods, renewal limits, "
+            "and fine rates? How does the system pick the most specific rule for a member?"
         ),
         expected_files=[
-            "src/main/java/com/example/catalog/controller/UserController.java",
-            "src/main/java/com/example/catalog/service/UserService.java",
-            "src/main/java/com/example/catalog/model/User.java",
-            "src/main/java/com/example/catalog/dto/UserDTO.java",
+            "src/main/java/com/example/library/circulation/CirculationRulesEngine.java",
+            "src/main/java/com/example/library/circulation/CirculationRuleService.java",
+            "src/main/java/com/example/library/circulation/CirculationRuleController.java",
         ],
     ),
     GroundTruthCase(
-        name="angular_auth",
+        name="reading_challenge",
         question=(
-            "How does the Angular frontend handle login and authentication state? "
-            "Where is the JWT token stored and how is the current user tracked?"
+            "How do members enroll in and complete reading challenges? "
+            "How is reading progress tracked and what determines challenge completion?"
         ),
         expected_files=[
-            "catalog-ui/src/app/shared/services/auth.service.ts",
-            "catalog-ui/src/app/auth/login/login.component.ts",
-            "catalog-ui/src/app/app.component.ts",
+            "src/main/java/com/example/library/readingchallenge/ReadingChallengeService.java",
+            "src/main/java/com/example/library/readingchallenge/ReadingChallengeController.java",
+            "src/main/java/com/example/library/readingchallenge/ChallengeParticipation.java",
+            "src/main/java/com/example/library/readingchallenge/ChallengeProgress.java",
         ],
     ),
 ]

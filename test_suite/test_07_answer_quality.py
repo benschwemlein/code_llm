@@ -17,9 +17,9 @@ library-catalog-app and are grounded in real class/method names.
 
 Thresholds
 ----------
-  Faithfulness     : ≥ 0.25  (at least 1 in 4 retrieved class names appear in answer)
-  Must-contain     : primary class names only (llama3.1 paraphrases method names)
-  Reference overlap: ≥ 0.25  (calibrated to llama3.1 observed output)
+  Faithfulness     : >= 0.20  (at least 1 in 5 retrieved class names appear in answer)
+  Must-contain     : primary class names only
+  Reference overlap: >= 0.20  (calibrated to observed qwen2.5:7b output)
 """
 
 import re
@@ -42,182 +42,170 @@ class ReferenceCase:
 
 REFERENCE_CASES: list[ReferenceCase] = [
     ReferenceCase(
-        name="jwt_authentication",
-        must_contain=["JwtService", "JwtAuthenticationFilter"],
+        name="loan_checkout_validation",
+        must_contain=["LoanService", "LoanController"],
         reference="""
-JWT authentication uses two classes. JwtService handles token generation and validation:
-generateToken(UserDetails) creates a signed HMAC-SHA256 JWT using a Base64-encoded secret key
-from application.security.jwt.secret-key. buildToken() sets the subject (username), issuedAt,
-and expiration, then signs with HS256 via JJWT. isTokenValid() checks the username matches
-and the token is not expired. extractAllClaims() parses the token using Jwts.parserBuilder
-with getSignInKey(). generateRefreshToken() creates a longer-lived token using refreshExpiration.
-JwtAuthenticationFilter extends OncePerRequestFilter and intercepts every HTTP request:
-it extracts the Bearer token from the Authorization header, calls jwtService.extractUsername()
-to get the user email, loads UserDetails via UserDetailsService, then queries TokenRepository
-to verify the token is neither expired nor revoked (findByToken().map(!expired && !revoked)).
-If valid, it sets a UsernamePasswordAuthenticationToken in SecurityContextHolder.
-Requests to /api/v1/auth/** bypass the filter entirely. Token entities persist issued JWTs
-with expired and revoked boolean flags for blacklist enforcement.
+Book checkout is handled by LoanService.checkout(CheckoutRequestDTO). The service requires
+either memberId or membershipNumber, and either bookCopyId or copyBarcode; throws
+CheckoutValidationException if both are missing. It resolves the Member via MemberRepository
+and throws MemberNotFoundException if not found. Member.isActive() is checked and
+MembershipExpiredException is thrown for expired accounts. Unpaid fines are checked against
+a threshold of $10.00 (UNPAID_FINES_THRESHOLD) via FineService; throws UnpaidFinesException
+if exceeded. The concurrent loan count is capped at MAX_CONCURRENT_LOANS (5); throws
+ConcurrentLoanLimitException if exceeded. The BookCopy is resolved by id or barcode; throws
+CopyNotAvailableException if its status is not AVAILABLE. A Loan entity is created with
+status ACTIVE and a calculated due date, persisted via LoanRepository. NotificationService
+sends a checkout confirmation. LoanController exposes REST endpoints for checkout, return,
+renewal, and loan history, delegating all logic to LoanService.
 """,
     ),
     ReferenceCase(
-        name="checkout_borrow",
-        must_contain=["BorrowController", "CheckoutService"],
+        name="loan_eligibility_chain",
+        must_contain=["LoanEligibilityChain", "MaxLoansHandler"],
         reference="""
-Catalog item checkout and return is handled by BorrowController (@RestController, /catalog/borrow)
-and CheckoutService. BorrowController exposes: GET /catalog/borrow lists all checkouts as
-CheckoutDTO, GET /catalog/borrow/item/{itemId} lists checkouts for an item,
-GET /catalog/borrow/{id} gets one checkout, PUT /catalog/borrow/checkout checks out an item,
-PUT /catalog/borrow/checkin checks it back in. Both PUT endpoints accept CheckInOutRequestDTO
-(userEmail, itemId) and look up the User via UserService.getUserByEmail().
-CheckoutService.checkout(catalogItemId, userId) checks for an existing active Checkout
-(checkedOut=true) via findByItemId(); if none exists, creates a new Checkout with
-checkedOut=true and checkoutDateTime=LocalDateTime.now(). Returns null if already checked out.
-CheckoutService.checkin(catalogItemId, userId) finds the active checkout, sets checkedOut=false
-and checkinDateTime=now(), then saves. The Checkout entity has itemId, item (CatalogItem),
-checkedOut boolean, checkoutDateTime, checkinDateTime, checkedoutById, and checkedoutBy (User).
-ModelMapper with STRICT matching maps entities to CheckoutDTO.
+Loan eligibility uses the Chain of Responsibility pattern via LoanEligibilityChain.
+Six handlers are chained in PostConstruct order: MembershipActiveHandler checks that the
+member account is active and not expired. MaxLoansHandler checks the member has not exceeded
+the maximum concurrent loan limit. UnpaidFinesHandler checks the member has no unpaid fines
+above the threshold. CopyAvailableHandler checks the specific book copy status is AVAILABLE.
+BranchAccessHandler verifies the member can borrow from the requested branch.
+AgeRestrictionHandler enforces any age restrictions on the item. Each handler extends
+LoanEligibilityHandler and calls setNext() to wire the chain. LoanEligibilityChain.validate()
+starts with membershipActiveHandler and returns a ValidationResult containing isValid(),
+failureReason, and failedHandler. A valid result means all six checks passed. The chain is
+initialized via @PostConstruct and logged at INFO level.
 """,
     ),
     ReferenceCase(
-        name="catalog_item_crud",
-        must_contain=["CatalogItemController", "CatalogItemService"],
+        name="fine_calculation_strategy",
+        must_contain=["OverdueFineContext", "StandardFineStrategy"],
         reference="""
-Catalog item management is provided by CatalogItemController (@RestController, /catalog/catalog-items)
-backed by CatalogItemService. The controller exposes full CRUD: POST creates from CatalogItemRequestDTO,
-GET /catalog/catalog-items lists all items as CatalogItemResponseDTO with nested Checkout data
-(convertToCatalogItemResponseDTO maps the first Checkout to CatalogItemCheckoutRepsonseDTO),
-GET /catalog/catalog-items/{id} retrieves one item, PUT updates, DELETE removes.
-MappingUtils.mapCatalogIds() populates catalogIds on the response DTOs.
-CatalogItemService wraps CatalogItemRepository (Spring Data JPA) for all persistence operations.
-The CatalogItem entity has: id, title, description, createdDateTime (@CreationTimestamp),
-createdBy (User, ManyToOne), catalogIds (List<CatalogId> via @ManyToMany join table
-catalog_item_catalog_id with @Cascade(ALL)), and checkouts (Set<Checkout>, OneToMany).
-ModelMapper with STRICT matching strategy handles DTO-entity conversion throughout.
+Overdue fine calculation uses the Strategy pattern. FineCalculationStrategy is the interface
+with calculateFine(Loan, LocalDate). Three implementations cover membership tiers:
+StandardFineStrategy charges $0.25 per day overdue, capped at $25.00.
+PremiumFineStrategy charges $0.10 per day overdue, capped at $10.00.
+StudentFineStrategy charges $0.15 per day overdue, capped at $15.00, with a 1-day grace
+period — no fine if returned within 1 day of the due date.
+OverdueFineContext selects the strategy based on the member's MembershipTier using an
+EnumMap<MembershipTier, FineCalculationStrategy>. The constructor wires STANDARD to
+StandardFineStrategy, PREMIUM to PremiumFineStrategy, STUDENT to StudentFineStrategy.
+calculateFine(Loan, LocalDate) looks up the member's tier, delegates to the matching
+strategy, and throws IllegalStateException if no strategy is registered for the tier.
+setStrategy() allows runtime override for testing or promotions.
 """,
     ),
     ReferenceCase(
-        name="user_registration",
-        must_contain=["AuthenticationService", "AuthenticationController"],
+        name="hold_state_machine",
+        must_contain=["HoldStateMachine", "HoldContext"],
         reference="""
-User registration is handled by AuthenticationController (POST /api/v1/auth/register) which
-delegates to AuthenticationService.register(RegisterRequest). The service builds a User from
-RegisterRequest fields (firstname, lastname, email, password, role), BCrypt-encodes the password
-via PasswordEncoder, saves via UserRepository, then generates both an access token
-(jwtService.generateToken()) and a refresh token (jwtService.generateRefreshToken()). The access
-token is saved to TokenRepository via saveUserToken() as a Token entity with tokenType=BEARER,
-expired=false, revoked=false. Returns AuthenticationResponse with accessToken and refreshToken.
-AuthenticationController also exposes POST /api/v1/auth/authenticate (login): credentials are
-validated via AuthenticationManager, all prior tokens are revoked via revokeAllUserTokens(),
-new tokens are generated and saved, and the response includes accessToken, refreshToken,
-firstName, lastName, email. POST /api/v1/auth/refresh-token verifies the Bearer refresh token
-via jwtService.isTokenValid(), revokes old tokens, and issues a fresh access token.
-A TODO notes that ADMIN/MANAGER users should not be self-registerable via this endpoint.
+Holds are managed through a State pattern. HoldStateMachine creates a HoldContext for a given
+Hold by mapping HoldStatus to a state bean: PENDING maps to PendingHoldState, READY to
+ReadyHoldState, FULFILLED to FulfilledHoldState, CANCELLED to CancelledHoldState, EXPIRED
+to ExpiredHoldState. A null status throws IllegalArgumentException. HoldContext wraps the Hold
+and the current HoldState, delegating operations (notify, fulfill, cancel, expire) to the
+active state. Each state implements HoldState and defines which transitions are legal — for
+example, PendingHoldState can transition to READY or CANCELLED; ReadyHoldState can transition
+to FULFILLED or EXPIRED. HoldService uses HoldStateMachine to enforce state rules when
+processing hold lifecycle events. HoldRepository provides persistence and
+findByMemberIdAndBookId() for duplicate hold detection.
 """,
     ),
     ReferenceCase(
-        name="spring_security",
-        must_contain=["SecurityConfiguration"],
+        name="recommendation_engine",
+        must_contain=["RecommendationEngine", "HybridRecommendationService"],
         reference="""
-Spring Security is configured in SecurityConfiguration (@Configuration, @EnableWebSecurity,
-@EnableMethodSecurity). WHITE_LIST_URL permits unauthenticated access to /api/v1/auth/**,
-/v2/api-docs, /v3/api-docs/**, /swagger-resources/**, /configuration/**, /swagger-ui/**,
-/webjars/**, and /swagger-ui.html. The /catalog/** path requires any of ROLE_ADMIN, ROLE_MANAGER,
-or ROLE_USER; per-method permission checks enforce *_READ on GET/POST/PUT and *_READ on DELETE.
-The /api/v1/management/** path requires ROLE_ADMIN or ROLE_MANAGER with method-level permission
-checks (*_READ on GET, *_CREATE on POST, *_UPDATE on PUT, *_DELETE on DELETE). All other requests
-require authentication. Sessions are STATELESS. JwtAuthenticationFilter is added before
-UsernamePasswordAuthenticationFilter. Logout is registered at /api/v1/auth/logout with
-LogoutService as the LogoutHandler. ApplicationConfig provides UserDetailsService (loads by email),
-DaoAuthenticationProvider, BCryptPasswordEncoder, AuditorAware, and CORS configuration allowing
-all methods from http://localhost:4200 on /api/** and /catalog/**.
+Book recommendations are served by RecommendationEngine. On a request for a member,
+RecommendationCache is checked first; if a cached List<RecommendationDTO> exists it is
+returned immediately. Otherwise the member is loaded via MemberRepository and
+HybridRecommendationService.getRecommendations(member, limit) is called. The result is
+stored in RecommendationCache before returning. HybridRecommendationService combines
+CollaborativeFilteringService (finds members with similar borrowing history and surfaces
+their top books) and ContentBasedFilteringService (matches books by genre and subject to
+the member's borrowing profile). getRecommendationsForCurrentMember() resolves the member
+from the Spring Security context via SecurityContextHolder and MemberRepository.findByUser_Email();
+returns an empty list if no member record exists for the authenticated user.
 """,
     ),
     ReferenceCase(
-        name="role_permissions",
-        must_contain=["Role", "Permission"],
+        name="overdue_batch_processing",
+        must_contain=["OverdueBatchProcessor", "BatchJobService"],
         reference="""
-The Role enum defines three roles: USER, ADMIN, and MANAGER. Each holds a Set<Permission> and
-a getAuthorities() method that maps permissions to List<SimpleGrantedAuthority> then appends
-ROLE_<name> (e.g. ROLE_ADMIN). USER has USER_READ, USER_CREATE, USER_UPDATE, USER_DELETE.
-MANAGER has MANAGER_READ, MANAGER_UPDATE, MANAGER_DELETE, MANAGER_CREATE. ADMIN has all
-ADMIN_ permissions plus all MANAGER_ and USER_ permissions — a strict superset.
-The Permission enum defines string permission values (e.g. admin:read, manager:create,
-user:delete) accessed via getPermission(); each maps to a SimpleGrantedAuthority.
-User stores role as VARCHAR(50) via @Enumerated(EnumType.STRING). User.getAuthorities()
-delegates to role.getAuthorities() returning the full permission list. SecurityConfiguration
-uses hasAnyRole() for coarse access and hasAnyAuthority() for fine-grained method-level
-access on /catalog/** and /api/v1/management/** endpoints.
+Overdue loan processing is triggered by OverdueLoanScheduler (@Scheduled via SchedulerConfig)
+which calls BatchJobService.submitJob(JobType.OVERDUE_PROCESSING). BatchJobService creates a
+BatchJob entity with status PENDING, saves it, then calls runJobAsync() which is @Async on
+the libraryTaskExecutor thread pool. The job is dispatched to OverdueBatchProcessor.process(job).
+OverdueBatchProcessor queries LoanRepository.findOverdueLoans(LocalDateTime.now()) to find all
+ACTIVE loans past their due date. Loans are processed in chunks of 100 (CHUNK_SIZE). For each
+overdue loan: FineService issues a fine, the loan status is set to OVERDUE, and NotificationService
+sends a notification to the member. Errors per loan are caught and counted individually so one
+failure does not abort the batch. The BatchJob is updated with COMPLETED or FAILED status and
+a processed/failed count after all chunks finish.
 """,
     ),
     ReferenceCase(
-        name="token_revocation",
-        must_contain=["LogoutService", "TokenRepository"],
+        name="full_text_search",
+        must_contain=["FullTextSearchService", "SearchIndexService"],
         reference="""
-JWT revocation is handled by LogoutService which implements Spring Security's LogoutHandler.
-On logout (POST /api/v1/auth/logout), logout() extracts the Bearer token from the Authorization
-header, looks it up via TokenRepository.findByToken(), and if found sets expired=true and
-revoked=true on the Token entity, saves it, then calls SecurityContextHolder.clearContext().
-JwtAuthenticationFilter enforces revocation on every request: after validating the JWT signature,
-it queries TokenRepository.findByToken().map(t -> !t.isExpired() && !t.isRevoked()) to confirm
-the token is still valid in the database. AuthenticationService.revokeAllUserTokens(user) is
-also called on each fresh login to invalidate prior sessions: findAllValidTokenByUser(userId)
-fetches all non-expired, non-revoked tokens, sets expired=true and revoked=true on all, and saves.
-This enforces single-session semantics — a new login from any device revokes all prior tokens.
-The Token entity has: token (unique String), tokenType (BEARER via TokenType enum), revoked
-boolean, expired boolean, and a ManyToOne @FetchType.LAZY relationship to User.
+Full-text search is provided by FullTextSearchService.search(query, entityType, page, pageSize).
+It queries SearchIndexRepository for matching index entries, applies in-memory term scoring to
+rank results by relevance, paginates the ranked list, and logs the query to SearchLogRepository
+via SearchLog entities for analytics. Auto-complete suggestions are generated from the same
+index entries. The entityType parameter optionally filters results to BOOK, MEMBER, or AUTHOR.
+An empty or null query returns an empty SearchResultPage immediately. SearchIndexService builds
+and maintains the SearchIndex: it tokenizes field values from Book, Member, and Author entities
+and persists SearchIndex records via SearchIndexRepository. SearchIndexingEventListener listens
+for domain events (BookAddedEvent, MemberRegisteredEvent) and calls SearchIndexService to keep
+the index in sync with entity changes. SearchController exposes GET /search?q=...&type=...
+and GET /search/suggestions.
 """,
     ),
     ReferenceCase(
-        name="catalog_identifiers",
-        must_contain=["CatalogIdType", "CatalogId"],
+        name="notification_events",
+        must_contain=["NotificationEventListener", "HoldReadyEvent"],
         reference="""
-Catalog identifier types (e.g. ISBN, BARCODE) are managed via CatalogIdTypeController
-(@RestController, /catalog/catalog-id-types) backed by CatalogIdTypeService and
-CatalogIdTypeRepository. CatalogIdType defines the identifier type name and supports full CRUD.
-CatalogId represents a specific identifier value linked to a CatalogIdType.
-CatalogItem holds a List<CatalogId> via @ManyToMany with join table catalog_item_catalog_id;
-@Cascade(ALL) ensures identifiers are created and deleted with the item.
-CatalogIdRepository provides persistence for individual CatalogId records.
-CatalogIdDTO and CatalogIdTypeDTO are the transfer objects. MappingUtils.mapCatalogIds()
-populates the catalogIds field on CatalogItemResponseDTO when listing all items.
-ModelMapperConfig in the config package was intended to handle CatalogId-to-DTO mapping
-but currently contains commented-out configuration.
+Member notifications are triggered by Spring application events. NotificationEventListener
+is annotated @Component and uses @EventListener + @Async to handle events off the publishing
+thread. onHoldReady(HoldReadyEvent) notifies the member when their hold is ready for pickup,
+including the hold id, expiry date, and pickup branch. The member is looked up via
+MemberRepository; missing members are logged and skipped. NotificationService.sendNotification()
+dispatches the message. Other handled events include BookCheckedOutEvent (checkout confirmation),
+FineIssuedEvent (fine notice), OverdueNoticeEvent (overdue reminder), and
+MembershipExpiredEvent (expiry warning). Each event carries correlation and member ids for
+tracing. Events are published via ApplicationEventPublisher in the relevant service methods.
+The async handlers run on the Spring task executor to avoid blocking the caller.
 """,
     ),
     ReferenceCase(
-        name="user_management",
-        must_contain=["UserController", "UserService"],
+        name="circulation_rules",
+        must_contain=["CirculationRulesEngine", "CirculationRuleService"],
         reference="""
-User retrieval is provided by UserController (@RestController, /users). Two read-only endpoints:
-GET /users returns all users as List<UserDTO> via userService.getAllUsers(), and GET /users/{id}
-returns one user by id as UserDTO via userService.getUserById(). Both map User entities to UserDTO
-via ModelMapper with STRICT matching. UserService provides getAllUsers() (UserRepository.findAll()),
-getUserById(Long id) (throws RuntimeException if not found), and getUserByEmail(String email)
-called by BorrowController to look up users during checkout and checkin by email address.
-UserRepository extends JpaRepository<User, Long> and provides findByEmail(String) returning
-Optional<User>; also used by UserDetailsService in ApplicationConfig for Spring Security login.
-The User entity implements UserDetails: username maps to email, getAuthorities() delegates to
-role.getAuthorities(), all isAccountNon*() methods return true (no locking logic).
-UserDTO exposes safe fields for API responses without the password.
+Circulation rules are evaluated by CirculationRulesEngine.getApplicableRule(member, copy, branch).
+It determines the item type from the BookCopy and queries CirculationRuleRepository.findApplicableRules()
+for active rules matching the member's MembershipTier, the item type, and the branch. Branch-specific
+rules take priority over global rules; tier-specific rules beat wildcard rules. If no rule matches,
+a hardcoded DEFAULT_RULE is returned (21-day loan period, 2 max renewals, $0.25/day fine rate,
+$25.00 max fine, 8 max loans, 7-day reservation hold period, no age restriction).
+CirculationRulesEngine also enforces a MAX_FINE_THRESHOLD of $25.00 for checkout eligibility.
+CirculationRuleService provides CRUD operations for managing rules, backed by
+CirculationRuleRepository. CirculationRuleController exposes REST endpoints for creating,
+updating, and querying circulation rules.
 """,
     ),
     ReferenceCase(
-        name="angular_auth",
-        must_contain=["AuthService"],
+        name="reading_challenge",
+        must_contain=["ReadingChallengeService", "ChallengeParticipation"],
         reference="""
-The Angular frontend manages authentication via AuthService (Injectable). On login, the service
-calls POST /api/v1/auth/authenticate with email and password and stores the returned accessToken
-in localStorage. The JWT payload is base64-decoded to extract user fields (firstName, lastName,
-email, roles). A BehaviorSubject<UserInfo | null> named currentUser$ holds the active session
-state; components subscribe via the currentUser observable to react to login and logout.
-logout() removes the token from localStorage and sets currentUser$ to null.
-login.component.ts provides a reactive FormGroup with email and password controls, submits to
-authService.login(), and navigates on success. app.component.ts subscribes to currentUser$ to
-set isLoggedIn, isAdmin, isStaff, firstName, lastName flags. isAdmin checks roles.includes('ADMIN');
-isStaff checks for ADMIN or MANAGER. These flags drive conditional rendering of nav links and
-the user chip with avatar initials and a Log Out button that calls authService.logout().
-Role-based nav links (Staff, Admin) are shown only when isStaff or isAdmin are true.
+Reading challenges are managed by ReadingChallengeService. createChallenge() validates that
+start is before end and targetBooks is positive, then persists a ReadingChallenge with name,
+description, startDate, endDate, targetBooks, targetGenreNames, badge, and active=true.
+getActiveChallenges() queries ReadingChallenge records where active=true and endDate is after
+today, then enriches each with enrollment count and completion count from ChallengeParticipation.
+Members enroll via a participation method that creates a ChallengeParticipation record linking
+the member to the challenge. ChallengeProgress tracks individual book completions within a
+challenge — each progress record links a participation, a book, and a completion date.
+Challenge completion is determined when the progress count meets or exceeds the challenge's
+targetBooks. ReadingChallengeController exposes REST endpoints for creating challenges,
+listing active challenges, enrolling members, logging progress, and viewing leaderboards.
 """,
     ),
 ]
@@ -227,10 +215,9 @@ REFERENCE_BY_NAME = {r.name: r for r in REFERENCE_CASES}
 FAITHFULNESS_THRESHOLD      = 0.20
 REFERENCE_OVERLAP_THRESHOLD = 0.20
 
-# Queries where llama3.1 consistently paraphrases without citing class names.
+# Queries where the model is less likely to cite exact class names.
 # Marked xfail — these represent known model quality gaps, not test bugs.
-# They will flip to xpass if a better model is used.
-WEAK_QUERIES = {"angular_auth", "catalog_identifiers"}
+WEAK_QUERIES = {"notification_events", "reading_challenge"}
 
 
 # ---------------------------------------------------------------------------
@@ -247,7 +234,7 @@ def faithfulness_score(answer: str, retrieved_metas: list[dict]) -> float:
     Fraction of class names (derived from retrieved source file paths) that appear
     in the answer. Detects hallucination: model inventing classes not in context.
 
-    e.g. "jwt/JwtService.java" -> "JwtService"
+    e.g. "pattern/chain/MaxLoansHandler.java" -> "MaxLoansHandler"
     """
     class_names = set()
     for meta in retrieved_metas:
@@ -309,7 +296,7 @@ def test_faithfulness(case, answer_results, request):
     """Answer should mention class names from the retrieved source files."""
     if case.name in WEAK_QUERIES:
         request.node.add_marker(pytest.mark.xfail(
-            reason=f"{case.name}: llama3.1 paraphrases without citing class names",
+            reason=f"{case.name}: model may paraphrase without citing class names",
             strict=False,
         ))
     r = answer_results[case.name]
@@ -325,7 +312,7 @@ def test_must_contain_keywords(case, answer_results, request):
     """Answer must contain specific key class names for each query."""
     if case.name in WEAK_QUERIES:
         request.node.add_marker(pytest.mark.xfail(
-            reason=f"{case.name}: llama3.1 paraphrases without citing class names",
+            reason=f"{case.name}: model may paraphrase without citing class names",
             strict=False,
         ))
     ref = REFERENCE_BY_NAME.get(case.name)
@@ -344,7 +331,7 @@ def test_reference_overlap(case, answer_results, request):
     """Answer should overlap with the reference answer on key vocabulary."""
     if case.name in WEAK_QUERIES:
         request.node.add_marker(pytest.mark.xfail(
-            reason=f"{case.name}: llama3.1 answer diverges from reference vocabulary",
+            reason=f"{case.name}: model answer may diverge from reference vocabulary",
             strict=False,
         ))
     ref = REFERENCE_BY_NAME.get(case.name)
