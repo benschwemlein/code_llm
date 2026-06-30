@@ -7,8 +7,8 @@ Run explicitly with:
 Tests answer quality (faithfulness + reference overlap) across chat models.
 
 Before/after Zack Lowery's June 2026 recommendations:
-  Before: qwen2.5:7b  (prior default — Leading Edje benchmark winner)
-  After:  gemma4:12b  (Zack's pick for general dev, single consumer GPU)
+  Before: qwen2.5:7b   (prior default — Leading Edje benchmark winner)
+  After:  qwen3.6:27b  (Zack's top code/dev pick — dense 27B)
 
 Uses the same faithfulness and reference overlap metrics as test_07.
 No pass/fail thresholds — the report is the output.
@@ -25,7 +25,7 @@ from test_07_answer_quality import (
 
 CHAT_MODELS = [
     "qwen2.5:7b",    # pre-Zack baseline (prior default)
-    "gemma4:12b",    # Zack Lowery's pick — general dev, single consumer GPU
+    "qwen3.6:27b",   # Zack's top code/dev pick — dense 27B (17 GB)
 ]
 
 
