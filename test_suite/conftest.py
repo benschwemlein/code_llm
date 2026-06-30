@@ -1,11 +1,11 @@
 """
-Integration test suite for code_llm indexing and querying.
+Integration test suite for LocalScope indexing and querying.
 
 Requires Ollama to be running locally with nomic-embed-text and llama3.1 (or whatever
 is configured in config.py / env vars).
 
 Run with:
-    cd /Users/ben.schwemlein/dev/repos/code_llm
+    cd /Users/ben.schwemlein/dev/repos/LocalScope
     python3.13 -m pytest test_suite/ -v
 
 Set SAMPLE_APP_PATH env var to override the default sample app location.

@@ -1,6 +1,6 @@
 Copyright © 2026 Ben Schwemlein
 
-Required Notice: Copyright © 2026 Ben Schwemlein (https://github.com/benschwemlein/code_llm)
+Required Notice: Copyright © 2026 Ben Schwemlein (https://github.com/benschwemlein/LocalScope)
 
 This software is licensed under the PolyForm Noncommercial License 1.0.0.
 Free for noncommercial use. Commercial use requires a separate license from the licensor.

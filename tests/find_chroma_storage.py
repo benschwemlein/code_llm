@@ -15,7 +15,7 @@ print()
 possible_locations = [
     "/Users/ben.schwemlein/dev/indexes/radio2",
     "/Users/ben.schwemlein/dev/indexes",
-    "/Users/ben.schwemlein/dev/repos/code_llm/chroma_repo",
+    "/Users/ben.schwemlein/dev/repos/LocalScope/chroma_repo",
     Path.home() / "dev" / "indexes" / "radio2",
     Path.home() / "chroma_repo",
     Path.cwd() / "chroma_repo",

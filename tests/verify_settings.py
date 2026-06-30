@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Verify what settings code_llm is actually using for indexing.
+Verify what settings LocalScope is actually using for indexing.
 """
 
 import json
@@ -16,7 +16,7 @@ print()
 
 if not CONFIG_PATH.exists():
     print(f"❌ Config file not found at: {CONFIG_PATH}")
-    print("   Please run this script from the code_llm/tests directory")
+    print("   Please run this script from the LocalScope/tests directory")
     exit(1)
 
 print(f"📄 Config file: {CONFIG_PATH}")
@@ -82,7 +82,7 @@ print("""
 
 To fix the dimension mismatch error:
 1. Delete the old index: rm -rf /Users/ben.schwemlein/dev/indexes/radio2
-2. Go to Index tab in code_llm
+2. Go to Index tab in LocalScope
 3. Click "Start Indexing" to rebuild with current settings (nomic-embed-text)
 """)
 print()

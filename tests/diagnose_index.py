@@ -25,7 +25,7 @@ def analyze_index():
     if not Path(INDEX_DIR).exists():
         print(f"❌ ERROR: Index directory does not exist: {INDEX_DIR}")
         print(f"   This means the index hasn't been created yet.")
-        print(f"   Go to the Index tab in code_llm and click 'Index' to create it.")
+        print(f"   Go to the Index tab in LocalScope and click 'Index' to create it.")
         return
     
     print(f"✓ Index directory exists")
@@ -35,7 +35,7 @@ def analyze_index():
     if not db_file.exists():
         print(f"❌ ERROR: ChromaDB database file does not exist: {db_file}")
         print(f"   The directory exists but it's empty.")
-        print(f"   Go to the Index tab in code_llm and click 'Index' to populate it.")
+        print(f"   Go to the Index tab in LocalScope and click 'Index' to populate it.")
         return
     
     print(f"✓ ChromaDB database file exists ({db_file.stat().st_size:,} bytes)")

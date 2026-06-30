@@ -34,8 +34,8 @@ Ramping onto a large, unfamiliar codebase is slow, and sending proprietary sourc
 4. Clone this repo:
 
    ```bash
-   git clone https://github.com/benschwemlein/code_llm.git
-   cd code_llm
+   git clone https://github.com/benschwemlein/LocalScope.git
+   cd LocalScope
    pip install chromadb requests
    ```
 
@@ -122,8 +122,8 @@ http://localhost:11434
 Clone the project:
 
 ```bash
-git clone https://github.com/benschwemlein/code_llm.git
-cd code_llm
+git clone https://github.com/benschwemlein/LocalScope.git
+cd LocalScope
 pip install chromadb requests
 ```
 
@@ -325,7 +325,7 @@ Summarizer or Chat prompt is empty.
 # Project Structure
 
 ```
-code_llm/
+LocalScope/
   app.py                      # Tkinter GUI entry point
   config.py / settings_*.py   # settings + persisted config (~/.local-rag-llm/config.json)
 

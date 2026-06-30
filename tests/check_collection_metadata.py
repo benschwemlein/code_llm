@@ -109,7 +109,7 @@ SOLUTION:
 You need to completely delete this collection and re-create it.
 But first, we need to ensure the indexer will use the correct model.
 
-Check your code_llm indexing code to see if it's explicitly setting
+Check your LocalScope indexing code to see if it's explicitly setting
 the embedding function when creating the collection.
     """)
     

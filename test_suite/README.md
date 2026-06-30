@@ -14,7 +14,7 @@ git clone https://github.com/benschwemlein/library-catalog-app sample_apps/libra
 
 ```bash
 # From the repo root
-cd /path/to/code_llm
+cd /path/to/LocalScope
 
 # Run the full standard suite (indexes once, reuses for all tests)
 python3.13 -m pytest test_suite/ -v -s
