@@ -1,7 +1,12 @@
 # Test Suite
 
 Integration and semantic evaluation tests for the Local RAG LLM indexer and query engine.
-All tests run against **AngularAndSpringSampleApp** (a medium-sized Java + Angular crypto trading app).
+All tests run against [**library-catalog-app**](https://github.com/benschwemlein/library-catalog-app) — a Spring Boot + Angular library management system used as the benchmark corpus.
+
+Clone it into `sample_apps/library-catalog-app` before running:
+```bash
+git clone https://github.com/benschwemlein/library-catalog-app sample_apps/library-catalog-app
+```
 
 ---
 
@@ -53,7 +58,7 @@ Mutation tests (incremental update, delete, modify) get a cheap `shutil.copytree
 
 ## Chunking strategy results (test_05)
 
-Tested on AngularAndSpringSampleApp with overlap=200.
+Tested on library-catalog-app with overlap=200.
 
 ```
 Strategy          p@5   r@10    MRR

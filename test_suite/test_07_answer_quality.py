@@ -13,7 +13,7 @@ Two checks per ground-truth query:
                      Scored as: |answer_keywords ∩ reference_keywords| / |reference_keywords|
 
 Reference answers were written by reading the actual source files in
-AngularAndSpringSampleApp and are grounded in real class/method names.
+library-catalog-app and are grounded in real class/method names.
 
 Thresholds
 ----------

@@ -24,7 +24,8 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-_DEFAULT_SAMPLE_APP = str(PROJECT_ROOT / "AngularAndSpringSampleApp")
+# Clone https://github.com/benschwemlein/library-catalog-app into sample_apps/library-catalog-app
+_DEFAULT_SAMPLE_APP = str(PROJECT_ROOT / "sample_apps" / "library-catalog-app")
 
 SAMPLE_APP_PATH = os.environ.get("SAMPLE_APP_PATH", _DEFAULT_SAMPLE_APP)
 
