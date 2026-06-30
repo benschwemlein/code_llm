@@ -1,6 +1,6 @@
 
 
-# **Local RAG LLM**
+# LocalScope: Local AI code intelligence for any codebase
 
 A desktop application for running Retrieval Augmented Generation against any source code repository using only local models. It indexes a repository into a vector database, retrieves the most relevant code for a natural language question, bug report, or stack trace, and uses a local LLM to explain how the code works or why a problem occurs. **Everything runs on your machine, no cloud calls, no code leaves your laptop.**
 
