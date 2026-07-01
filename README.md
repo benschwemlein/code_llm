@@ -6,7 +6,7 @@ A desktop application for running Retrieval Augmented Generation against any sou
 
 ### Why I built it
 
-Ramping onto a large, unfamiliar codebase is slow, and sending proprietary source to a cloud LLM is often off the table. I built this to ask plain-English questions about a codebase ("where is the credit-card application flow handled?", "what calls this service?") and get back the exact files plus an explanation, entirely offline. I used it to onboard onto a large commercial codebase faster than the rest of the team.
+Ramping onto a large, unfamiliar codebase is slow, and sending proprietary source to a cloud LLM is often off the table. I built this to ask plain-English questions about a codebase ("where is the credit-card application flow handled?", "why does this batch job run slowly?") and get back the exact files plus an explanation, entirely offline.
 
 ### Technical highlights
 
